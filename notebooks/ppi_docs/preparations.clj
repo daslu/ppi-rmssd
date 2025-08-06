@@ -277,9 +277,3 @@
 
 continuous-ppi-data
 
-(def continuous-csv-path "data/continuous-ppi.csv.gz")
-
-(when-not (fs/exists? continuous-csv-path)
-  (tc/write! continuous-ppi-data continuous-csv-path))
-
-
