@@ -967,7 +967,8 @@
   "Measures how distortion affects a windowed metric calculation.
   
   Takes a clean time series, applies distortion, computes a windowed metric
-  on both versions, and returns the relative error statistics.
+  on both versions, and returns the relative error statistics using proper
+  timestamp-based alignment.
   
   **Args:**
   
@@ -995,11 +996,19 @@
         clean-with-metric (add-metric time-series "-clean")
         distorted-with-metric (add-metric distorted-series "-distorted")
 
-        ;; Simple approach: get columns directly and filter valid pairs
-        clean-values (tc/column clean-with-metric (keyword (str (name colname) "-clean")))
-        distorted-values (tc/column distorted-with-metric (keyword (str (name colname) "-distorted")))
+        ;; Proper timestamp-based alignment using left-join
+        comparison-data (tc/left-join clean-with-metric
+                                      distorted-with-metric
+                                      [:timestamp])
 
-        ;; Filter out nils and zeros to avoid division errors
+        ;; Extract metric columns after join
+        clean-col (keyword (str (name colname) "-clean"))
+        distorted-col (keyword (str (name colname) "-distorted"))
+
+        clean-values (clean-col comparison-data)
+        distorted-values (distorted-col comparison-data)
+
+        ;; Filter out pairs where either value is nil, NaN, or clean value is zero
         valid-pairs (filter (fn [[clean dist]]
                               (and clean dist
                                    (not (Double/isNaN clean))
@@ -1019,4 +1028,8 @@
     {:mean-relative-error mean-relative-error
      :n-valid-pairs (count valid-pairs)
      :clean-data clean-with-metric
-     :distorted-data distorted-with-metric}))
+     :distorted-data distorted-with-metric
+     :comparison-data comparison-data}))
+
+
+
