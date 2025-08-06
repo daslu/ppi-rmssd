@@ -1,5 +1,6 @@
 (ns ppi.api
   (:require ;; Data manipulation and analysis
+   [tech.v3.dataset :as ds] ; Efficient dataset constructs
    [tablecloth.api :as tc] ; Dataset manipulation and analysis
    [tablecloth.column.api :as tcc] ; Column-level operations and statistics
 
@@ -301,3 +302,71 @@
           0.0
           (tcc/reduce-max successive-changes))
         max-successive-change))))
+
+
+;; A dataset that holds only the last `max-size` (or less)
+;; rows in memory,
+;; implemented as a round-robin index structure
+;; defined over a tech.ml.dataset structure with mutable columns:
+(defrecord WindowedDataset
+    [dataset
+     column-types
+     max-size
+     current-size
+     current-position])
+
+
+(defn make-windowed-dataset
+  "Create an empty `WindowedDataset` with a given `max-size`
+  and given `column-types` (map).
+
+  **Args:**
+  - `column-types` - a map from column name to type
+  - `max-size` - maximal window size to keep
+
+  **Returns:**
+  The specified `WindowedDataset` structure."
+  [column-types max-size]
+  (-> column-types
+      (update-vals
+       (fn [datatype]
+         (dtype/make-container :jvm-heap
+                               datatype
+                               max-size)))
+      tc/dataset
+      (->WindowedDataset column-types max-size 0 0)))
+
+
+(defn insert-to-windowed-dataset!
+  "Insert a new row to a `WindowedDataset`.
+  
+  **Args:**
+  - `windowed-dataset` - a `WindowedDataset`
+  - `row` - A row represented as a map structure
+  (can be a record or `FastStruct`, etc.)
+
+  **Returns:**
+  Updated windowed dataset with its data mutated(!)."
+  [{:as windowed-dataset
+    :keys [dataset column-types max-size current-position]}
+   value]
+  (doseq [[colname _] column-types]
+    (dtype/set-value! (dataset colname)
+                      current-position
+                      (value colname)))
+  (-> windowed-dataset
+      (update :current-size #(min (inc %) max-size))
+      (update :current-position #(rem (inc %) max-size))))
+
+(defn windowed-dataset->dataset
+  "Return a regular dataset as a view over the content of a windowed dataset.
+
+  **Args:**
+  - `windowed-dataset` - a `WindowedDataset`"
+  [{:as windowed-dataset
+    :keys [dataset column-types max-size current-size current-position]}]
+  (ds/select-rows dataset
+                  (-> (range (- current-position
+                                current-size)
+                             current-position)
+                      (dfn/rem max-size))))
