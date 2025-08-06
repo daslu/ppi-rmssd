@@ -171,10 +171,7 @@
     - `:jump-threshold` - minimum gap in milliseconds to consider a jump
             
   **Returns:**
-  Dataset with additional columns:
-  
-  - `:delta-timestamp` - time difference from previous measurement (ms)
-  - `:jump` - binary flag (`1` if jump detected, `0` otherwise)  
+  Dataset with an additional column:
   - `:jump-count` - cumulative count of jumps per device (creates segments)"
   [data {:keys [jump-threshold]}]
   (-> data
@@ -194,6 +191,7 @@
                      #(map (fn [delta] (if (> delta jump-threshold) 1 0)) (:delta-timestamp %)))
       (tc/add-column :jump-count
                      #(reductions + (:jump %)))
+      (tc/drop-columns [:delta-timestamp :jump])
       tc/ungroup))
 
 
@@ -205,7 +203,7 @@
   - `standard-csv-path` - path to the raw data
             
   **Returns:**
-  A dataset with columns: `:Device-UUID :timestamp :PpErrorEstimate`"
+  Dataset with columns: `:Device-UUID :timestamp :PpErrorEstimate`"
   [standard-csv-path]
   (let [date-time-format "yyyy.M.d, HH:mm"
         raw-data      (tc/dataset standard-csv-path

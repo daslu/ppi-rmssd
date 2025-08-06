@@ -92,14 +92,6 @@
 
           result (sut/recognize-jumps test-data {:jump-threshold 5000})]
 
-      (t/testing "adds delta-timestamp column"
-        (t/is (contains? (set (tc/column-names result)) :delta-timestamp))
-        (t/is (= [0 1000 7000 1000] (tc/column result :delta-timestamp))))
-
-      (t/testing "detects jumps based on threshold"
-        (t/is (contains? (set (tc/column-names result)) :jump))
-        (t/is (= [0 0 1 0] (tc/column result :jump))))
-
       (t/testing "maintains cumulative jump count"
         (t/is (contains? (set (tc/column-names result)) :jump-count))
         (t/is (= [0 0 1 1] (tc/column result :jump-count))))))
@@ -114,7 +106,7 @@
 
           result (sut/recognize-jumps test-data {:jump-threshold 5000})]
 
-      (t/is (= [0 1 0 0] (tc/column result :jump))))))
+      (t/is (= [0 1 0 0] (tc/column result :jump-count))))))
 
 (t/deftest prepare-standard-csv!-test
   (t/testing "processes gzipped CSV with quote issues"
@@ -178,8 +170,7 @@
     (let [single-row (tc/dataset {:Device-UUID ["device1"]
                                   :timestamp [(java-time/local-date-time 2025 5 1 10 0)]})]
       (let [result (sut/recognize-jumps single-row {:jump-threshold 5000})]
-        (t/is (= [0] (tc/column result :delta-timestamp)))
-        (t/is (= [0] (tc/column result :jump))))))
+        (t/is (= [0] (tc/column result :jump-count))))))
 
   (t/testing "standardize-csv-line handles various edge cases"
     (t/is (= "no quotes" (sut/standardize-csv-line "no quotes")))
@@ -372,12 +363,10 @@
 
       (t/testing "low threshold detects more jumps"
         (let [result (sut/recognize-jumps test-data {:jump-threshold 2000})]
-          (t/is (= [0 0 1 1] (tc/column result :jump)))
           (t/is (= [0 0 1 2] (tc/column result :jump-count)))))
 
       (t/testing "high threshold detects fewer jumps"
         (let [result (sut/recognize-jumps test-data {:jump-threshold 5000})]
-          (t/is (= [0 0 0 1] (tc/column result :jump)))
           (t/is (= [0 0 0 1] (tc/column result :jump-count)))))))
 
   (t/testing "handles complex multi-device scenarios"
@@ -393,7 +382,6 @@
           result (sut/recognize-jumps test-data {:jump-threshold 5000})]
 
       (t/is (= 6 (tc/row-count result)))
-      (t/is (= [0 0 1 0 1 0] (tc/column result :jump)))
       (t/is (= [0 0 1 0 1 0] (tc/column result :jump-count)))))
 
   (t/testing "handles edge case timestamps"
@@ -405,7 +393,7 @@
 
           result (sut/recognize-jumps test-data {:jump-threshold 5000})]
 
-      (t/is (= [0 0 1] (tc/column result :jump)))))
+      (t/is (= [0 0 1] (tc/column result :jump-count)))))
 
   (t/testing "preserves row order after processing"
     (let [base-time (java-time/local-date-time 2025 5 1 10 0)
@@ -427,7 +415,7 @@
 
           result (sut/recognize-jumps test-data {:jump-threshold 86400000})] ; 1 day threshold
 
-      (t/is (= [0 1] (tc/column result :jump))))))
+      (t/is (= [0 1] (tc/column result :jump-count))))))
 
 (t/deftest integration-test-fixed
   (t/testing "partial pipeline integration"
@@ -455,7 +443,6 @@
 
         (t/is (= 2 (tc/row-count with-jumps)))
         (t/is (contains? (set (tc/column-names with-jumps)) :timestamp))
-        (t/is (contains? (set (tc/column-names with-jumps)) :jump))
         (t/is (= [1000 1800] (tc/column with-timestamps :accumulated-pp)))))))
 
 (t/deftest error-handling-and-validation-test
@@ -476,8 +463,7 @@
                                                :PpInMs [800]})
           result (sut/recognize-jumps data-without-timestamps {:jump-threshold 5000})]
 
-      (t/is (= 1 (tc/row-count result)))
-      (t/is (= [0] (tc/column result :delta-timestamp)))))
+      (t/is (= 1 (tc/row-count result)))))
 
   (t/testing "standardize-csv-line handles null input"
     (t/is (thrown? Exception (sut/standardize-csv-line nil))))
@@ -498,6 +484,5 @@
                                  :timestamp timestamps})]
 
       (let [result (sut/recognize-jumps test-data {:jump-threshold 5000})]
-        (t/is (= dataset-size (tc/row-count result)))
-        (t/is (every? number? (tc/column result :delta-timestamp)))))))
+        (t/is (= dataset-size (tc/row-count result)))))))
 
