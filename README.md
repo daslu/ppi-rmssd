@@ -26,11 +26,17 @@ The main challenge we're solving: real-time HRV measurements are often noisy and
 
 Built on the Clojure data science ecosystem:
 
-- **Noj** - data science toolkit:
-  - **dtype-next** - array programming
-  - **tech.ml.dataset** - efficient datasets
-  - **Tablecloth** - dataset ergonomics
-  - **Fastmath** - math
-  - **Tableplot** - plotting
-  - **Clay** - Literate programming and visualization
+- [**Noj**](https://scicloj.github.io/noj/) - data science toolkit:
+  - [**dtype-next**](https://cnuernber.github.io/dtype-next/) - array programming
+  - [**tech.ml.dataset**](https://techascent.github.io/tech.ml.dataset/) - efficient datasets
+  - [**Tablecloth**](https://scicloj.github.io/tablecloth/) - dataset ergonomics
+  - [**Fastmath**](https://generateme.github.io/fastmath/clay/) - math
+  - [**Tableplot**](https://scicloj.github.io/tableplot/) - plotting
+  - [**Clay**](https://scicloj.github.io/clay/) - Literate programming and visualization
+
+## Development
+
+* Just explore most of the code in the REPL.
+
+
 
