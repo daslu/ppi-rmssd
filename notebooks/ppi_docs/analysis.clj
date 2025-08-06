@@ -37,6 +37,17 @@
 ;; This analysis tests different smoothing algorithms to find the best approach for
 ;; stable real-time RMSSD computation that still responds meaningfully to actual changes
 ;; in heart rate patterns.
+;;
+;; ## Analysis Plan
+;;
+;; Our approach:
+
+;; 1. **Find clean reference data** - Identify high-quality PPI segments to use as ground truth
+;; 2. **Add realistic artifacts** - Simulate measurement noise, outliers, and missing beats  
+;; 3. **Test smoothing algorithms** - Compare moving averages, median filters, and cascaded approaches
+;; 4. **Measure performance** - Quantify how well each algorithm restores clean RMSSD values
+;; 5. **Validate across segments** - Test on multiple data segments for robust results
+;; 6. **Make recommendations** - Choose the best algorithm for real-world implementation
 
 ;; ## Our Data: Pulse-to-Pulse Intervals from Polar Devices
 ;;
