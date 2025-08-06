@@ -1,4 +1,4 @@
-(ns ppi-docs.walkthrough
+(ns ppi-docs.preparations
   (:require ;; Data manipulation and analysis  
    [tablecloth.api :as tc] ; Dataset manipulation and analysis
    [tablecloth.column.api :as tcc] ; Column-level operations and statistics
