@@ -962,3 +962,61 @@
                                           (windowed-fn new-windowed-dataset)]))
                                      [initial-windowed-dataset nil])
                                     (map second))))))
+
+(defn measure-distortion-impact
+  "Measures how distortion affects a windowed metric calculation.
+  
+  Takes a clean time series, applies distortion, computes a windowed metric
+  on both versions, and returns the relative error statistics.
+  
+  **Args:**
+  
+  - `time-series` - Clean time series data (tablecloth dataset)
+  - `distortion-params` - Map of distortion parameters for distort-segment
+  - `windowed-fn-config` - Map with :colname, :windowed-fn, :windowed-dataset-size
+  
+  **Returns:**
+  Map with :mean-relative-error and :n-valid-pairs
+  "
+  [time-series distortion-params windowed-fn-config]
+  (let [{:keys [colname windowed-fn windowed-dataset-size]} windowed-fn-config
+
+        ;; Apply distortion
+        distorted-series (distort-segment time-series distortion-params)
+
+        ;; Add windowed metric to both series
+        add-metric (fn [series suffix]
+                     (add-column-by-windowed-fn
+                      series
+                      {:colname (keyword (str (name colname) suffix))
+                       :windowed-fn windowed-fn
+                       :windowed-dataset-size windowed-dataset-size}))
+
+        clean-with-metric (add-metric time-series "-clean")
+        distorted-with-metric (add-metric distorted-series "-distorted")
+
+        ;; Simple approach: get columns directly and filter valid pairs
+        clean-values (tc/column clean-with-metric (keyword (str (name colname) "-clean")))
+        distorted-values (tc/column distorted-with-metric (keyword (str (name colname) "-distorted")))
+
+        ;; Filter out nils and zeros to avoid division errors
+        valid-pairs (filter (fn [[clean dist]]
+                              (and clean dist
+                                   (not (Double/isNaN clean))
+                                   (not (Double/isNaN dist))
+                                   (not (zero? clean))))
+                            (map vector clean-values distorted-values))
+
+        ;; Calculate relative errors
+        relative-errors (map (fn [[clean dist]] (/ (- dist clean) clean))
+                             valid-pairs)
+
+        ;; Mean relative error
+        mean-relative-error (if (seq relative-errors)
+                              (/ (reduce + relative-errors) (count relative-errors))
+                              nil)]
+
+    {:mean-relative-error mean-relative-error
+     :n-valid-pairs (count valid-pairs)
+     :clean-data clean-with-metric
+     :distorted-data distorted-with-metric}))

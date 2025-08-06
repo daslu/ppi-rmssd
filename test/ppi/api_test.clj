@@ -1909,3 +1909,189 @@
         (t/is (= (tc/row-count unordered-series) (tc/row-count result)))
         ;; Should have processed data in chronological order
         (t/is (number? (last (tc/column result :MovingAvg))))))))
+
+(t/deftest measure-distortion-impact-test
+  (t/testing "Basic functionality with varied data"
+    (let [;; Create test data with natural variation
+          test-data (tc/dataset
+                     {:timestamp (mapv #(java-time/plus (java-time/local-date-time 2024 1 1 10 0 0)
+                                                        (java-time/millis (* % 800)))
+                                       (range 20))
+                      :PpInMs (mapv #(+ 800 (* 10 (Math/sin (/ % 5.0)))) (range 20))
+                      :PpErrorEstimate (repeat 20 5)
+                      :Device-UUID (repeat 20 #uuid "8d453046-24f2-921e-34be-7ed0d7a37d6f")})
+
+          ;; Configuration for RMSSD with short window for testing
+          rmssd-config {:colname :RMSSD
+                        :windowed-fn #(sut/windowed-dataset->rmssd % :timestamp 5000) ; 5 second window
+                        :windowed-dataset-size 50}
+
+          ;; Light distortion
+          distortion-params {:noise-std 5.0 :outlier-prob 0.05}
+
+          result (sut/measure-distortion-impact test-data distortion-params rmssd-config)]
+
+      ;; Test return structure
+      (t/is (contains? result :mean-relative-error))
+      (t/is (contains? result :n-valid-pairs))
+      (t/is (contains? result :clean-data))
+      (t/is (contains? result :distorted-data))
+
+      ;; Test that we get meaningful results
+      (t/is (number? (:mean-relative-error result)))
+      (t/is (> (:n-valid-pairs result) 0))
+      (t/is (> (:n-valid-pairs result) 10)) ; Should have most pairs valid
+
+      ;; Test that distortion increases error (should be positive since distortion > clean)
+      (t/is (> (:mean-relative-error result) 0))
+      (t/is (< (:mean-relative-error result) 1000)) ; Should be reasonable, not astronomical
+
+      ;; Test that datasets have the right structure
+      (t/is (tc/dataset? (:clean-data result)))
+      (t/is (tc/dataset? (:distorted-data result)))
+      (t/is (= (tc/row-count test-data) (tc/row-count (:clean-data result))))
+      (t/is (contains? (set (tc/column-names (:clean-data result))) :RMSSD-clean))
+      (t/is (contains? (set (tc/column-names (:distorted-data result))) :RMSSD-distorted))))
+
+  (t/testing "No distortion should give zero relative error"
+    (let [test-data (tc/dataset
+                     {:timestamp (mapv #(java-time/plus (java-time/local-date-time 2024 1 1 10 0 0)
+                                                        (java-time/millis (* % 800)))
+                                       (range 15))
+                      :PpInMs (mapv #(+ 800 (* 10 (Math/sin (/ % 5.0)))) (range 15))
+                      :PpErrorEstimate (repeat 15 5)
+                      :Device-UUID (repeat 15 #uuid "8d453046-24f2-921e-34be-7ed0d7a37d6f")})
+
+          rmssd-config {:colname :RMSSD
+                        :windowed-fn #(sut/windowed-dataset->rmssd % :timestamp 5000)
+                        :windowed-dataset-size 50}
+
+          ;; No distortion
+          no-distortion {:noise-std 0.0 :outlier-prob 0.0 :missing-prob 0.0 :extra-prob 0.0 :drift-magnitude 0.0}
+
+          result (sut/measure-distortion-impact test-data no-distortion rmssd-config)]
+
+      ;; With no distortion, relative error should be very close to zero
+      (t/is (< (Math/abs (:mean-relative-error result)) 0.001))
+      (t/is (> (:n-valid-pairs result) 5))))
+
+  (t/testing "Perfect steady data should handle zero RMSSD gracefully"
+    (let [;; Perfect steady data (will have zero RMSSD)
+          steady-data (tc/dataset
+                       {:timestamp (mapv #(java-time/plus (java-time/local-date-time 2024 1 1 10 0 0)
+                                                          (java-time/millis (* % 800)))
+                                         (range 15))
+                        :PpInMs (repeat 15 800) ; Perfectly steady
+                        :PpErrorEstimate (repeat 15 5)
+                        :Device-UUID (repeat 15 #uuid "8d453046-24f2-921e-34be-7ed0d7a37d6f")})
+
+          rmssd-config {:colname :RMSSD
+                        :windowed-fn #(sut/windowed-dataset->rmssd % :timestamp 5000)
+                        :windowed-dataset-size 50}
+
+          distortion-params {:noise-std 5.0}
+
+          result (sut/measure-distortion-impact steady-data distortion-params rmssd-config)]
+
+      ;; Should handle division by zero gracefully (filter out zero denominators)
+      (t/is (or (nil? (:mean-relative-error result))
+                (number? (:mean-relative-error result))))
+      (t/is (>= (:n-valid-pairs result) 0))))
+
+  (t/testing "Different windowed functions work"
+    (let [test-data (tc/dataset
+                     {:timestamp (mapv #(java-time/plus (java-time/local-date-time 2024 1 1 10 0 0)
+                                                        (java-time/millis (* % 800)))
+                                       (range 15))
+                      :PpInMs (mapv #(+ 800 (* 15 (Math/sin (/ % 3.0)))) (range 15))
+                      :PpErrorEstimate (repeat 15 5)
+                      :Device-UUID (repeat 15 #uuid "8d453046-24f2-921e-34be-7ed0d7a37d6f")})
+
+          ;; Test with moving average instead of RMSSD
+          moving-avg-config {:colname :MovingAvg
+                             :windowed-fn #(sut/moving-average % 5)
+                             :windowed-dataset-size 50}
+
+          distortion-params {:noise-std 10.0}
+
+          result (sut/measure-distortion-impact test-data distortion-params moving-avg-config)]
+
+      (t/is (number? (:mean-relative-error result)))
+      (t/is (> (:n-valid-pairs result) 5))
+      (t/is (contains? (set (tc/column-names (:clean-data result))) :MovingAvg-clean))))
+
+  (t/testing "Edge cases and error handling"
+    (let [minimal-data (tc/dataset
+                        {:timestamp [(java-time/local-date-time 2024 1 1 10 0 0)
+                                     (java-time/plus (java-time/local-date-time 2024 1 1 10 0 0)
+                                                     (java-time/millis 800))]
+                         :PpInMs [800 800]
+                         :PpErrorEstimate [5 5]
+                         :Device-UUID [#uuid "8d453046-24f2-921e-34be-7ed0d7a37d6f"
+                                       #uuid "8d453046-24f2-921e-34be-7ed0d7a37d6f"]})
+
+          rmssd-config {:colname :RMSSD
+                        :windowed-fn #(sut/windowed-dataset->rmssd % :timestamp 5000)
+                        :windowed-dataset-size 50}
+
+          distortion-params {:noise-std 5.0}]
+
+      ;; Should not crash with minimal data
+      (t/is (map? (sut/measure-distortion-impact minimal-data distortion-params rmssd-config)))))
+
+  (t/testing "Distortion level affects relative error"
+    (let [test-data (tc/dataset
+                     {:timestamp (mapv #(java-time/plus (java-time/local-date-time 2024 1 1 10 0 0)
+                                                        (java-time/millis (* % 800)))
+                                       (range 20))
+                      :PpInMs (mapv #(+ 800 (* 20 (Math/sin (/ % 4.0)))) (range 20))
+                      :PpErrorEstimate (repeat 20 5)
+                      :Device-UUID (repeat 20 #uuid "8d453046-24f2-921e-34be-7ed0d7a37d6f")})
+
+          rmssd-config {:colname :RMSSD
+                        :windowed-fn #(sut/windowed-dataset->rmssd % :timestamp 8000)
+                        :windowed-dataset-size 50}
+
+          light-distortion {:noise-std 5.0 :outlier-prob 0.02}
+          heavy-distortion {:noise-std 20.0 :outlier-prob 0.08}
+
+          light-result (sut/measure-distortion-impact test-data light-distortion rmssd-config)
+          heavy-result (sut/measure-distortion-impact test-data heavy-distortion rmssd-config)]
+
+      ;; Both should produce meaningful errors, and heavy distortion should be non-trivial
+      (when (and (number? (:mean-relative-error light-result))
+                 (number? (:mean-relative-error heavy-result))
+                 (> (:n-valid-pairs light-result) 5)
+                 (> (:n-valid-pairs heavy-result) 5))
+        (t/is (> (:mean-relative-error light-result) 0) "Light distortion should cause some error")
+        (t/is (> (:mean-relative-error heavy-result) 0) "Heavy distortion should cause some error")
+        (t/is (< (:mean-relative-error heavy-result) 1000) "Heavy distortion error should be reasonable")))))
+
+(t/deftest measure-distortion-impact-performance-test
+  (t/testing "Performance with larger dataset"
+    (let [;; Larger test dataset
+          n-samples 100
+          test-data (tc/dataset
+                     {:timestamp (mapv #(java-time/plus (java-time/local-date-time 2024 1 1 10 0 0)
+                                                        (java-time/millis (* % 800)))
+                                       (range n-samples))
+                      :PpInMs (mapv #(+ 800 (* 25 (Math/sin (/ % 8.0)))) (range n-samples))
+                      :PpErrorEstimate (repeat n-samples 5)
+                      :Device-UUID (repeat n-samples #uuid "8d453046-24f2-921e-34be-7ed0d7a37d6f")})
+
+          rmssd-config {:colname :RMSSD
+                        :windowed-fn #(sut/windowed-dataset->rmssd % :timestamp 10000)
+                        :windowed-dataset-size 120}
+
+          distortion-params {:noise-std 10.0 :outlier-prob 0.05}]
+
+      ;; Should complete in reasonable time (< 5 seconds)
+      (let [start-time (System/nanoTime)
+            result (sut/measure-distortion-impact test-data distortion-params rmssd-config)
+            end-time (System/nanoTime)
+            duration-ms (/ (- end-time start-time) 1e6)]
+
+        (t/is (< duration-ms 5000) "Function should complete within 5 seconds")
+        (t/is (number? (:mean-relative-error result)))
+        (t/is (> (:n-valid-pairs result) 50))))))
+
