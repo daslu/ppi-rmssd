@@ -214,8 +214,7 @@
       ;; Combine for comparison
       combined-rmssd (-> (tc/concat (tc/add-columns clean-with-rmssd {:signal-type "Clean"})
                                     (tc/add-columns distorted-with-rmssd {:signal-type "Distorted"}))
-                         (tc/select-rows #(not (nil? (:RMSSD %))))) ; Remove nil RMSSD values
-      ]
+                         (tc/select-rows #(not (nil? (:RMSSD %)))))] ; Remove nil RMSSD values
 
   (-> combined-rmssd
       (plotly/base {:=height 300
@@ -502,9 +501,9 @@
 
 ;; ## Visual Example: Before and After Smoothing
 ;;
-;; Let's see what the actual RMSSD signals look like with and without smoothing:
+;; Let's see what the actual RMSSD signals look like when computed from raw vs smoothed PPI data:
 
-(let [;; Create distorted data
+(let [;; Create distorted PPI data
       distorted-segment (-> clean-segment-example
                             (ppi/distort-segment {:noise-std 12.0
                                                   :outlier-prob 0.05
@@ -512,37 +511,35 @@
                                                   :missing-prob 0.015
                                                   :extra-prob 0.01}))
 
-      ;; RMSSD configurations
-      base-config {:colname :RMSSD-Raw
-                   :windowed-fn #(ppi/windowed-dataset->rmssd % :timestamp 60000)
-                   :windowed-dataset-size 240}
+      ;; Calculate RMSSD from raw distorted PPI data
+      raw-rmssd-data (-> distorted-segment
+                         (ppi/add-column-by-windowed-fn {:colname :RMSSD
+                                                         :windowed-fn #(ppi/windowed-dataset->rmssd % :timestamp 60000)
+                                                         :windowed-dataset-size 240})
+                         (tc/add-columns {:signal-type "Raw PPI → RMSSD"}))
 
-      smooth-config {:colname :RMSSD-Smooth
-                     :windowed-fn #(ppi/median-filter % 5)
-                     :windowed-dataset-size 240}
+      ;; Calculate RMSSD from smoothed PPI data (two-step process)
+      smoothed-rmssd-data (-> distorted-segment
+                              ;; Step 1: Smooth the PPI data
+                              (ppi/add-column-by-windowed-fn {:colname :PpInMs
+                                                              :windowed-fn #(ppi/cascaded-smoothing-filter % 5 3)
+                                                              :windowed-dataset-size 240})
+                              ;; Step 2: Compute RMSSD from smoothed PPI  
+                              (ppi/add-column-by-windowed-fn {:colname :RMSSD
+                                                              :windowed-fn #(ppi/windowed-dataset->rmssd % :timestamp 60000)
+                                                              :windowed-dataset-size 240})
+                              (tc/add-columns {:signal-type "Smoothed PPI → RMSSD"}))
 
-      ;; Calculate both versions
-      with-raw-rmssd (-> distorted-segment
-                         (ppi/add-column-by-windowed-fn base-config))
+      ;; Combine for comparison
+      combined-data (-> (tc/concat raw-rmssd-data smoothed-rmssd-data)
+                        (tc/select-rows #(not (nil? (:RMSSD %)))))]
 
-      with-both-rmssd (-> with-raw-rmssd
-                          (ppi/add-column-by-windowed-fn smooth-config))
-
-      ;; Prepare for plotting
-      plot-data (-> with-both-rmssd
-                    (tc/select-rows #(and (not (nil? (:RMSSD-Raw %)))
-                                          (not (nil? (:RMSSD-Smooth %)))))
-                    (tc/pivot->longer [:RMSSD-Raw :RMSSD-Smooth]
-                                      {:target-columns [:measure :RMSSD]
-                                       :value-column-name :RMSSD
-                                       :variable-column-name :measure}))]
-
-  (-> plot-data
+  (-> combined-data
       (plotly/base {:=height 350
-                    :=title "RMSSD Smoothing Example: Raw vs Filtered"})
+                    :=title "RMSSD Comparison: Raw vs Smoothed PPI Data"})
       (plotly/layer-line {:=x :timestamp
                           :=y :RMSSD
-                          :=color :measure})))
+                          :=color :signal-type})))
 
 ;; The smoothed signal clearly shows the underlying trends while reducing
 ;; the moment-to-moment volatility that would confuse users.
