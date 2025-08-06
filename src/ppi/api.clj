@@ -590,12 +590,7 @@
   
   **Returns:**
   Dataset with noisy PPI intervals
-  
-  **Example:**
-  ```clojure
-  ;; Add 5ms standard deviation noise to clean data
-  (add-gaussian-noise clean-data :PpInMs 5.0)
-  ```"
+"
   ([data ppi-colname noise-std]
    (let [ppi-values (tc/column data ppi-colname)
          rng (random/rng :mersenne)
@@ -620,12 +615,7 @@
   
   **Returns:**
   Dataset with outlier artifacts added
-  
-  **Example:**
-  ```clojure
-  ;; Add outliers to 2% of samples with 3x normal deviation
-  (add-outliers clean-data :PpInMs 0.02 3.0)
-  ```"
+"
   ([data ppi-colname outlier-probability outlier-magnitude]
    (let [ppi-values (tc/column data ppi-colname)
          mean-ppi (tcc/mean ppi-values)
@@ -663,11 +653,7 @@
   **Returns:**
   Dataset with missing beat artifacts (doubled intervals)
   
-  **Example:**
-  ```clojure
-  ;; Simulate 1% missing beat rate
-  (add-missing-beats clean-data :PpInMs 0.01)
-  ```"
+"
   ([data ppi-colname missing-probability]
    (let [ppi-values (tc/column data ppi-colname)
          rng (random/rng :mersenne)
@@ -701,11 +687,7 @@
   
   **Note:** This function modifies the dataset length by inserting additional rows.
   
-  **Example:**
-  ```clojure
-  ;; Simulate 1% extra beat rate
-  (add-extra-beats clean-data :PpInMs 0.01)
-  ```"
+"
   ([data ppi-colname extra-probability]
    (let [rows (tc/rows data :as-maps)
          rng (random/rng :mersenne)
@@ -743,11 +725,7 @@
   **Returns:**
   Dataset with gradual trend drift added
   
-  **Example:**
-  ```clojure
-  ;; Add gradual 50ms increase over the measurement period
-  (add-trend-drift clean-data :PpInMs 50.0 :increase)
-  ```"
+"
   ([data ppi-colname drift-magnitude drift-direction]
    (let [ppi-values (tc/column data ppi-colname)
          n (count ppi-values)
@@ -794,16 +772,7 @@
   **Returns:**
   Dataset with realistic distortions applied
   
-  **Example:**
-  ```clojure
-  ;; Apply moderate distortions with default parameters
-  (distort-segment clean-data {})
-  
-  ;; Apply heavy distortions
-  (distort-segment clean-data {:noise-std 8.0
-                               :outlier-prob 0.03
-                               :missing-prob 0.02})
-  ```"
+"
   ([clean-data distortion-params]
    (let [params (merge {:noise-std 3.0
                         :outlier-prob 0.015
@@ -938,13 +907,42 @@
   ([windowed-dataset alpha]
    (exponential-moving-average windowed-dataset alpha :PpInMs)))
 
+(defn add-column-by-windowed-fn
+  "Add a new column to a time-series by applying a windowed function progressively.
+  
+  This function simulates real-time streaming analysis on historical time-series data.
+  For each row in the time-series (processed in timestamp order), it:
 
+  1. Inserts the row into a growing windowed dataset
+  2. Applies the windowed function to calculate a result  
+  3. Uses that result as the column value for that row
+  
+  This bridges the gap between streaming windowed analysis and batch processing
+  of existing time-series data, allowing you to see how metrics evolve over time
+  as if the data were being processed in real-time.
+  
+  **Args:**
 
+  - `time-series` - a tablecloth dataset with timestamp-ordered data
+  - `options` - map with keys:
+    - `:colname` - name of the new column to add
+    - `:windowed-fn` - function that takes a WindowedDataset and returns a value
+    - `:windowed-dataset-size` - size of the windowed dataset buffer (currently ignored, uses 120)
+  
+  **Returns:**
+  The original time-series with the new column added, where each row contains
+  the result of applying the windowed function to all data up to that timestamp
+  
+ 
+  **Use Cases:**
 
-
-(defn add-column-by-windowed-fn [time-series {:keys [colname
-                                                     windowed-fn
-                                                     windowed-dataset-size]}]
+  - Adding progressive HRV metrics (RMSSD, moving averages) to time-series
+  - Creating trend analysis columns that consider historical context
+  - Simulating real-time algorithm behavior on historical data
+  - Generating training data with progressive features for ML models"
+  [time-series {:keys [colname
+                       windowed-fn
+                       windowed-dataset-size]}]
   (let [initial-windowed-dataset (-> time-series
                                      (update-vals tcc/typeof)
                                      (make-windowed-dataset
