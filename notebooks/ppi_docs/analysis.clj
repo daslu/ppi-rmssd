@@ -51,7 +51,20 @@ segmented-data
 
 ;; ## Finding clean segments
 
-;; Let us explore our 'clean segment' criteria with the segments of one device:
+;; Let us explore our 'clean segment' criteria with the segments of one device.
+;;
+;; Clean segments are high-quality PPI data suitable for ground truth analysis.
+;; The `ppi/clean-segment?` function identifies segments meeting five criteria:
+;;
+;; 1. **Sufficient samples** (≥25 points) and **duration** (≥30 seconds)
+;; 2. **Low error** (≤15ms average measurement uncertainty)  
+;; 3. **Stable heart rate** (≤15% coefficient of variation)
+;; 4. **Smooth transitions** (≤30% maximum successive change)
+;;
+;; These segments represent normal sinus rhythm periods with minimal artifacts,
+;; providing reliable reference data for algorithm validation and HRV analysis.
+
+;; Note that many of the segments simply have too little data to be considered clean.
 
 (let [clean-params {:max-error-estimate 15
                     :max-heart-rate-cv 15
@@ -70,23 +83,28 @@ segmented-data
                         tc/row-count
                         (> 2))))
           (map (fn [segment]
-                 [:div
-                  (kind/code (pr-str {:clean (ppi/clean-segment? segment clean-params)}))
-                  (-> segment
-                      (tc/order-by [:timestamp])
-                      (plotly/layer-line {:=x :timestamp
-                                          :=y :PpInMs}))])))
+                 (let [clean (ppi/clean-segment? segment clean-params)]
+                   [:div {:style {:background-color (if clean "#ddffdd" "#ffdddd")}}
+                    [:p "clean? " clean]
+                    (-> segment
+                        (tc/order-by [:timestamp])
+                        (plotly/layer-line {:=x :timestamp
+                                            :=y :PpInMs}))]))))
          segments)))
 
-;; ### Understanding Clean Segments
-;;
-;; Clean segments are high-quality PPI data suitable for ground truth analysis.
-;; The `ppi/clean-segment?` function identifies segments meeting five criteria:
-;;
-;; 1. **Sufficient samples** (≥25 points) and **duration** (≥30 seconds)
-;; 2. **Low error** (≤15ms average measurement uncertainty)  
-;; 3. **Stable heart rate** (≤15% coefficient of variation)
-;; 4. **Smooth transitions** (≤30% maximum successive change)
-;;
-;; These segments represent normal sinus rhythm periods with minimal artifacts,
-;; providing reliable reference data for algorithm validation and HRV analysis.
+;; ### Clean segment statistics
+
+(let [clean-params {:max-error-estimate 15
+                    :max-heart-rate-cv 15
+                    :max-successive-change 30
+                    :min-clean-duration 30000
+                    :min-clean-samples 25}]
+  (-> segmented-data
+      (tc/group-by [:Device-UUID :jump-count])
+      (tc/aggregate {:clean #(ppi/clean-segment? % clean-params)})
+      (tc/group-by [:Device-UUID])
+      (tc/aggregate {:n-segments tc/row-count
+                     :n-clean #(int (tcc/sum (:clean %)))})
+      (tc/map-columns :clean-percentage
+                      [:n-clean :n-segments]
+                      #(/ (* 100.0 %1) %2))))
