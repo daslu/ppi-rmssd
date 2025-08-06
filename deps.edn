@@ -1,0 +1,20 @@
+{:deps {org.scicloj/noj {:mvn/version "2-beta18"}
+        com.github.psambit9791/jdsp {:mvn/version "3.1.0"}}
+ :paths ["src" "notebooks"]
+ :aliases {;; nREPL server for AI to connect to
+           ;; Include all paths you want available for development
+           :nrepl {:extra-paths ["test"]
+                   :extra-deps {nrepl/nrepl {:mvn/version "1.3.1"}}
+	           ;; this allows nrepl to interrupt runaway repl evals
+                   :jvm-opts ["-Djdk.attach.allowAttachSelf"]
+                   :main-opts ["-m" "nrepl.cmdline" "--port" "7888"]}
+
+           ;; Test runner alias  
+           :test {:extra-paths ["test"]
+                  :exec-fn clojure.test/run-tests
+                  :exec-args {:nses [ppi.api-test]}}
+
+           ;; Alternative test runner using main-opts
+           :test-main {:extra-paths ["test"]
+                       :main-opts ["-e" "(require 'ppi.api-test) (clojure.test/run-tests 'ppi.api-test)"]}}}
+
