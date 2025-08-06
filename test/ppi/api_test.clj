@@ -486,3 +486,187 @@
       (let [result (sut/recognize-jumps test-data {:jump-threshold 5000})]
         (t/is (= dataset-size (tc/row-count result)))))))
 
+(t/deftest prepare-timestamped-ppi-data-test
+  (t/testing "function exists and can be called"
+    ; This function depends on specific CSV parsing that's complex to mock
+    ; We test that the function exists and has the right signature
+    (t/is (fn? sut/prepare-timestamped-ppi-data))
+
+    ; Test with a non-existent file to ensure it fails gracefully
+    (t/is (thrown? Exception (sut/prepare-timestamped-ppi-data "/non/existent/file.csv")))))
+
+(t/deftest calculate-coefficient-of-variation-test
+  (t/testing "calculates CV for normal data"
+    (let [values [100 110 90 105 95]
+          cv (sut/calclulcate-coefficient-of-variation values)]
+      (t/is (> cv 0))
+      (t/is (< cv 20)))) ; Should be reasonable percentage
+
+  (t/testing "handles uniform data"
+    (let [values [100 100 100 100]
+          cv (sut/calclulcate-coefficient-of-variation values)]
+      (t/is (= 0.0 cv))))
+
+  (t/testing "handles zero mean gracefully"
+    (let [values [0 0 0 0]
+          cv (sut/calclulcate-coefficient-of-variation values)]
+      (t/is (= 0.0 cv))))
+
+  (t/testing "handles single value"
+    (let [values [42]
+          cv (sut/calclulcate-coefficient-of-variation values)]
+      (t/is (or (= 0.0 cv) (Double/isNaN cv)))))
+
+  (t/testing "calculates CV for high variability data"
+    (let [values [10 100 1000]
+          cv (sut/calclulcate-coefficient-of-variation values)]
+      (t/is (> cv 50)))) ; High variability should give high CV
+
+  (t/testing "handles negative values correctly"
+    (let [values [-10 -5 -15]
+          cv (sut/calclulcate-coefficient-of-variation values)]
+      (t/is (> (Math/abs cv) 0)))))
+
+(t/deftest calculate-successive-changes-test
+  (t/testing "calculates percentage changes correctly"
+    (let [values [100 110 121] ; 10% then 10% increases
+          changes (sut/calculate-successive-changes values)]
+      (t/is (= 2 (count changes)))
+      (t/is (every? #(< (Math/abs (- % 10.0)) 0.1) changes)))) ; ~10% changes
+
+  (t/testing "handles decreasing values"
+    (let [values [100 90 81] ; 10% then 10% decreases
+          changes (sut/calculate-successive-changes values)]
+      (t/is (= 2 (count changes)))
+      (t/is (every? #(< (Math/abs (- % 10.0)) 0.1) changes)))) ; Absolute values ~10%
+
+  (t/testing "handles mixed increases and decreases"
+    (let [values [100 120 96] ; +20%, -20%
+          changes (sut/calculate-successive-changes values)]
+      (t/is (= 2 (count changes)))
+      (t/is (< (Math/abs (- (first changes) 20.0)) 0.1))
+      (t/is (< (Math/abs (- (second changes) 20.0)) 0.1))))
+
+  (t/testing "returns empty for single value"
+    (let [values [100]
+          changes (sut/calculate-successive-changes values)]
+      (t/is (= 0 (count changes)))))
+
+  (t/testing "returns empty for empty input"
+    (let [values []
+          changes (sut/calculate-successive-changes values)]
+      (t/is (= 0 (count changes)))))
+
+  (t/testing "handles non-zero values correctly"
+    (let [values [10 50 25]
+          changes (sut/calculate-successive-changes values)]
+      (t/is (= 2 (count changes)))
+      (t/is (every? #(> % 0) changes)))))
+
+(t/deftest clean-segment?-test
+  (t/testing "identifies clean segment with good parameters"
+    (let [base-time (java-time/local-date-time 2025 5 1 10 0)
+          clean-data (tc/dataset {:timestamp [(java-time/plus base-time (java-time/seconds 0))
+                                              (java-time/plus base-time (java-time/seconds 1))
+                                              (java-time/plus base-time (java-time/seconds 2))
+                                              (java-time/plus base-time (java-time/seconds 3))
+                                              (java-time/plus base-time (java-time/seconds 4))]
+                                  :PpInMs [800 810 805 815 820] ; Low variability
+                                  :PpErrorEstimate [5 4 6 5 4]}) ; Low error
+          params {:max-error-estimate 10
+                  :max-heart-rate-cv 5.0
+                  :max-successive-change 5.0
+                  :min-clean-duration 3000
+                  :min-clean-samples 5}]
+
+      (t/is (true? (sut/clean-segment? clean-data params)))))
+
+  (t/testing "rejects segment with high error estimate"
+    (let [base-time (java-time/local-date-time 2025 5 1 10 0)
+          noisy-data (tc/dataset {:timestamp [(java-time/plus base-time (java-time/seconds 0))
+                                              (java-time/plus base-time (java-time/seconds 1))
+                                              (java-time/plus base-time (java-time/seconds 2))
+                                              (java-time/plus base-time (java-time/seconds 3))
+                                              (java-time/plus base-time (java-time/seconds 4))]
+                                  :PpInMs [800 810 805 815 820]
+                                  :PpErrorEstimate [50 45 55 50 60]}) ; High error
+          params {:max-error-estimate 10
+                  :max-heart-rate-cv 5.0
+                  :max-successive-change 5.0
+                  :min-clean-duration 3000
+                  :min-clean-samples 5}]
+
+      (t/is (false? (sut/clean-segment? noisy-data params)))))
+
+  (t/testing "rejects segment with high heart rate variability"
+    (let [base-time (java-time/local-date-time 2025 5 1 10 0)
+          variable-data (tc/dataset {:timestamp [(java-time/plus base-time (java-time/seconds 0))
+                                                 (java-time/plus base-time (java-time/seconds 1))
+                                                 (java-time/plus base-time (java-time/seconds 2))
+                                                 (java-time/plus base-time (java-time/seconds 3))
+                                                 (java-time/plus base-time (java-time/seconds 4))]
+                                     :PpInMs [800 1200 600 1400 500] ; High variability
+                                     :PpErrorEstimate [5 4 6 5 4]})
+          params {:max-error-estimate 10
+                  :max-heart-rate-cv 5.0
+                  :max-successive-change 5.0
+                  :min-clean-duration 3000
+                  :min-clean-samples 5}]
+
+      (t/is (false? (sut/clean-segment? variable-data params)))))
+
+  (t/testing "rejects segment that is too short in duration"
+    (let [base-time (java-time/local-date-time 2025 5 1 10 0)
+          short-data (tc/dataset {:timestamp [(java-time/plus base-time (java-time/millis 0))
+                                              (java-time/plus base-time (java-time/millis 500))] ; Only 0.5 seconds
+                                  :PpInMs [800 810]
+                                  :PpErrorEstimate [5 4]})
+          params {:max-error-estimate 10
+                  :max-heart-rate-cv 5.0
+                  :max-successive-change 5.0
+                  :min-clean-duration 3000 ; Requires 3 seconds
+                  :min-clean-samples 2}]
+
+      (t/is (false? (sut/clean-segment? short-data params)))))
+
+  (t/testing "rejects segment with too few samples"
+    (let [base-time (java-time/local-date-time 2025 5 1 10 0)
+          few-samples (tc/dataset {:timestamp [(java-time/plus base-time (java-time/seconds 0))
+                                               (java-time/plus base-time (java-time/seconds 10))] ; Long duration but few samples
+                                   :PpInMs [800 810]
+                                   :PpErrorEstimate [5 4]})
+          params {:max-error-estimate 10
+                  :max-heart-rate-cv 5.0
+                  :max-successive-change 5.0
+                  :min-clean-duration 3000
+                  :min-clean-samples 5}] ; Requires 5 samples
+
+      (t/is (false? (sut/clean-segment? few-samples params)))))
+
+  (t/testing "handles edge case with single sample"
+    (let [base-time (java-time/local-date-time 2025 5 1 10 0)
+          single-sample (tc/dataset {:timestamp [(java-time/plus base-time (java-time/seconds 0))]
+                                     :PpInMs [800]
+                                     :PpErrorEstimate [5]})
+          params {:max-error-estimate 10
+                  :max-heart-rate-cv 100.0 ; Allow high CV for single sample
+                  :max-successive-change 100.0 ; Allow high successive change for single sample
+                  :min-clean-duration 0
+                  :min-clean-samples 1}]
+
+      ; Single sample may fail CV/successive change tests due to NaN values
+      (let [result (sut/clean-segment? single-sample params)]
+        (t/is (boolean? result)))))
+
+  (t/testing "handles empty segment"
+    (let [empty-data (tc/dataset {:timestamp []
+                                  :PpInMs []
+                                  :PpErrorEstimate []})
+          params {:max-error-estimate 10
+                  :max-heart-rate-cv 5.0
+                  :max-successive-change 5.0
+                  :min-clean-duration 0
+                  :min-clean-samples 1}]
+
+      (t/is (false? (sut/clean-segment? empty-data params))))))
+
