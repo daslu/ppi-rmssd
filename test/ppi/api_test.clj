@@ -1,4 +1,188 @@
 (ns ppi.api-test
   (:require [ppi.api :as sut]
-            [clojure.test :as t]))
+            [clojure.test :as t]
+            [tablecloth.api :as tc]
+            [java-time.api :as java-time]
+            [clojure.java.io :as io]
+            [babashka.fs :as fs])
+  (:import (java.util.zip GZIPOutputStream GZIPInputStream)))
+
+(t/deftest standardize-csv-line-test
+  (t/testing "removes leading and trailing quotes"
+    (t/is (= "test,data,here" (sut/standardize-csv-line "\"test,data,here\""))))
+
+  (t/testing "removes quadruple quotes"
+    (t/is (= "test,data" (sut/standardize-csv-line "test,\"\"\"\"data"))))
+
+  (t/testing "converts double quotes to single quotes"
+    (t/is (= "test,\"data" (sut/standardize-csv-line "test,\"\"data"))))
+
+  (t/testing "handles complex quote combinations"
+    (t/is (= "field1,\"value with quotes,field3"
+             (sut/standardize-csv-line "\"field1,\"\"value with quotes,field3\""))))
+
+  (t/testing "handles empty string"
+    (t/is (= "" (sut/standardize-csv-line "")))))
+
+(t/deftest prepare-raw-data-test
+  (t/testing "cleans column names and parses numeric data"
+    (let [raw-data (tc/dataset {"prefix-Device-UUID" ["device1" "device2"]
+                                "prefix-Pulse Rate" ["120,500" "110,200"]
+                                "prefix-PpInMs" ["800,900" "750,850"]
+                                "prefix-PpErrorEstimate" ["10,5" "8,12"]})
+          result (sut/prepare-raw-data raw-data "prefix-")]
+
+      (t/testing "removes prefix and converts spaces to hyphens"
+        (t/is (= #{:Device-UUID :Pulse-Rate :PpInMs :PpErrorEstimate}
+                 (set (tc/column-names result)))))
+
+      (t/testing "parses PpInMs numeric values"
+        (t/is (= [800900 750850] (tc/column result :PpInMs))))
+
+      (t/testing "parses PpErrorEstimate numeric values"
+        (t/is (= [105 812] (tc/column result :PpErrorEstimate)))))))
+
+(t/deftest filter-recent-data-test
+  (t/testing "filters data after cutoff date"
+    (let [old-date (java-time/local-date-time 2025 1 1 10 0)
+          recent-date (java-time/local-date-time 2025 5 1 10 0)
+          future-date (java-time/local-date-time 2025 6 1 10 0)
+          cutoff-date (java-time/local-date-time 2025 3 1 10 0)
+
+          test-data (tc/dataset {:Device-UUID ["device1" "device1" "device1"]
+                                 :Client-Timestamp [old-date recent-date future-date]
+                                 :PpInMs [800 850 900]})
+
+          result (sut/filter-recent-data test-data cutoff-date)]
+
+      (t/is (= 2 (tc/row-count result)))
+      (t/is (= [850 900] (tc/column result :PpInMs))))))
+
+(t/deftest add-timestamps-test
+  (t/testing "computes accumulated timestamps from pulse intervals"
+    (let [base-time (java-time/local-date-time 2025 5 1 10 0)
+          test-data (tc/dataset {:Device-UUID ["device1" "device1" "device1"]
+                                 :Client-Timestamp [base-time base-time base-time]
+                                 :PpInMs [1000 800 900]})
+
+          result (sut/add-timestamps test-data)]
+
+      (t/testing "adds accumulated-pp column"
+        (t/is (contains? (set (tc/column-names result)) :accumulated-pp))
+        (t/is (= [1000 1800 2700] (tc/column result :accumulated-pp))))
+
+      (t/testing "adds timestamp column with accumulated intervals"
+        (t/is (contains? (set (tc/column-names result)) :timestamp))
+        (let [timestamps (tc/column result :timestamp)
+              expected-times [(java-time/plus base-time (java-time/millis 1000))
+                              (java-time/plus base-time (java-time/millis 1800))
+                              (java-time/plus base-time (java-time/millis 2700))]]
+          (t/is (= expected-times timestamps)))))))
+
+(t/deftest recognize-jumps-test
+  (t/testing "detects temporal discontinuities"
+    (let [base-time (java-time/local-date-time 2025 5 1 10 0)
+          timestamps [(java-time/plus base-time (java-time/millis 0))
+                      (java-time/plus base-time (java-time/millis 1000)) ; 1s gap
+                      (java-time/plus base-time (java-time/millis 8000)) ; 7s gap (jump)
+                      (java-time/plus base-time (java-time/millis 9000))] ; 1s gap
+
+          test-data (tc/dataset {:Device-UUID ["device1" "device1" "device1" "device1"]
+                                 :timestamp timestamps})
+
+          result (sut/recognize-jumps test-data {:jump-threshold 5000})]
+
+      (t/testing "adds delta-timestamp column"
+        (t/is (contains? (set (tc/column-names result)) :delta-timestamp))
+        (t/is (= [0 1000 7000 1000] (tc/column result :delta-timestamp))))
+
+      (t/testing "detects jumps based on threshold"
+        (t/is (contains? (set (tc/column-names result)) :jump))
+        (t/is (= [0 0 1 0] (tc/column result :jump))))
+
+      (t/testing "maintains cumulative jump count"
+        (t/is (contains? (set (tc/column-names result)) :jump-count))
+        (t/is (= [0 0 1 1] (tc/column result :jump-count))))))
+
+  (t/testing "handles multiple devices independently"
+    (let [base-time (java-time/local-date-time 2025 5 1 10 0)
+          test-data (tc/dataset {:Device-UUID ["device1" "device1" "device2" "device2"]
+                                 :timestamp [(java-time/plus base-time (java-time/millis 0))
+                                             (java-time/plus base-time (java-time/millis 6000)) ; jump for device1
+                                             (java-time/plus base-time (java-time/millis 1000)) ; normal for device2
+                                             (java-time/plus base-time (java-time/millis 2000))]}) ; normal for device2
+
+          result (sut/recognize-jumps test-data {:jump-threshold 5000})]
+
+      (t/is (= [0 1 0 0] (tc/column result :jump))))))
+
+(t/deftest prepare-standard-csv!-test
+  (t/testing "processes gzipped CSV with quote issues"
+    (let [temp-dir (fs/create-temp-dir)
+          raw-path (str temp-dir "/raw.csv.gz")
+          standard-path (str temp-dir "/standard.csv.gz")
+
+          ; Create test gzipped CSV with quote issues
+          test-csv-content "\"header1,header2,header3\"\n\"\"\"\"value1\"\"\"\",\"\"value2\"\",normal"]
+
+      ; Write test gzipped file
+      (with-open [out (-> raw-path
+                          io/output-stream
+                          GZIPOutputStream.)]
+        (spit out test-csv-content))
+
+      ; Process the file
+      (sut/prepare-standard-csv! raw-path standard-path)
+
+      ; Read and verify the processed file
+      (let [processed-content (with-open [in (-> standard-path
+                                                 io/input-stream
+                                                 GZIPInputStream.)]
+                                (slurp in))]
+
+        (t/is (fs/exists? standard-path))
+        (t/is (= "header1,header2,header3\n\"\"value1,\"value2\",normal"
+                 processed-content)))
+
+      ; Cleanup
+      (fs/delete-tree temp-dir)))
+
+  (t/testing "skips processing if standard file already exists"
+    (let [temp-dir (fs/create-temp-dir)
+          raw-path (str temp-dir "/raw.csv.gz")
+          standard-path (str temp-dir "/standard.csv.gz")]
+
+      ; Create existing standard file
+      (spit standard-path "existing content")
+
+      ; Create raw file (shouldn't be processed)
+      (with-open [out (-> raw-path
+                          io/output-stream
+                          GZIPOutputStream.)]
+        (spit out "new content"))
+
+      (sut/prepare-standard-csv! raw-path standard-path)
+
+      ; Verify existing file wasn't overwritten
+      (t/is (= "existing content" (slurp standard-path)))
+
+      ; Cleanup
+      (fs/delete-tree temp-dir))))
+
+(t/deftest edge-cases-test
+  (t/testing "handles empty datasets gracefully"
+    (let [empty-data (tc/dataset {})]
+      (t/is (= 0 (tc/row-count (sut/filter-recent-data empty-data (java-time/local-date-time 2025 1 1)))))))
+
+  (t/testing "handles single row datasets"
+    (let [single-row (tc/dataset {:Device-UUID ["device1"]
+                                  :timestamp [(java-time/local-date-time 2025 5 1 10 0)]})]
+      (let [result (sut/recognize-jumps single-row {:jump-threshold 5000})]
+        (t/is (= [0] (tc/column result :delta-timestamp)))
+        (t/is (= [0] (tc/column result :jump))))))
+
+  (t/testing "standardize-csv-line handles various edge cases"
+    (t/is (= "no quotes" (sut/standardize-csv-line "no quotes")))
+    (t/is (= "only,commas" (sut/standardize-csv-line "only,commas")))
+    (t/is (= "single\"quote" (sut/standardize-csv-line "single\"quote")))))
 
