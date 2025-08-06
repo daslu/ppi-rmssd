@@ -139,11 +139,88 @@ segmented-data
               (map (fn [segment]
                      [:div {:style {:background-color "#ddffdd"}}
                       [:p "Device: " (-> segment :Device-UUID first)]
+                      [:p "Jump #: " (-> segment :jump-count first)]
                       (-> segment
                           (tc/order-by [:timestamp])
                           (plotly/layer-line {:=x :timestamp
                                               :=y :PpInMs}))]))))))
 
-;; ## Introducing cleaning algorithms
+;; ## Computing time-window RMSSD
+
+;; Let us see a few examples of computing time-window RMSSD
+;; over segments that we considered clean.
+
+;; Here we use the windowed-dataset efficient mechanism
+;; described in the api reference.
+
+;; It is a bit delicate to use, as it is a mutable construct.
+
+(let [segments (tc/group-by segmented-data
+                            [:Device-UUID :jump-count]
+                            {:result-type :as-seq})
+      time-window 60000]
+  (kind/hiccup
+   (into
+    [:div.limited-height]
+    (->> segments
+         (filter #(ppi/clean-segment? % clean-params))
+         (sort-by (fn [segment] ; shuffle the segments a bit:
+                    (-> segment
+                        tc/rows
+                        first
+                        hash)))
+         (take 10)
+         (map
+          (fn [segment]
+            (let [initial-windowed-dataset (-> segmented-data
+                                               (update-vals tcc/typeof)
+                                               (ppi/make-windowed-dataset
+                                                120))
+                  rows (-> segment
+                           (tc/order-by [:timestamp])
+                           (tc/rows :as-maps))]
+              [:div {:style {:background "#dddddd"}}
+               [:p "Device: " (-> segment :Device-UUID first)]
+               [:p "Jump #: " (-> segment :jump-count first)]
+               (-> segment
+                   (plotly/base {:=height 200})
+                   (plotly/layer-line {:=x :timestamp
+                                       :=y :PpInMs
+                                       :=height 200}))
+               (-> segment
+                   (tc/add-column :RMSSD (->> rows 
+                                              (reductions
+                                               (fn [[windowed-dataset _] row]
+                                                 (let [new-windowed-dataset
+                                                       (ppi/insert-to-windowed-dataset!
+                                                        windowed-dataset
+                                                        row)]
+                                                   [new-windowed-dataset
+                                                    (ppi/windowed-dataset->rmssd
+                                                     new-windowed-dataset :timestamp time-window)]))
+                                               [initial-windowed-dataset nil])
+                                              (map second)))
+                   (plotly/base {:=height 200})
+                   (plotly/layer-line {:=x :timestamp
+                                       :=y :RMSSD
+                                       :=mark-color "brown"}))])))))))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
