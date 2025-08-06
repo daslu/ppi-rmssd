@@ -2,6 +2,7 @@
   (:require [ppi.api :as sut]
             [clojure.test :as t]
             [tablecloth.api :as tc]
+            [tablecloth.column.api :as tcc]
             [java-time.api :as java-time]
             [clojure.java.io :as io]
             [babashka.fs :as fs])
@@ -1250,6 +1251,337 @@
       (t/testing "non-existent PPI column returns nil"
         (let [rmssd (sut/windowed-dataset->rmssd wd-with-data :timestamp 2000 :nonexistent)]
           (t/is (nil? rmssd)))))))
+
+(t/deftest add-gaussian-noise-test
+  (t/testing "adds Gaussian noise to PPI intervals"
+    (let [base-time (java-time/local-date-time 2025 1 1 12 0 0)
+          clean-data (tc/dataset {:timestamp [base-time]
+                                  :PpInMs [800]})
+          noisy-data (sut/add-gaussian-noise clean-data :PpInMs 0.0)] ; Zero noise for deterministic test
+
+      (t/testing "preserves dataset structure"
+        (t/is (= (tc/column-names clean-data) (tc/column-names noisy-data)))
+        (t/is (= (tc/row-count clean-data) (tc/row-count noisy-data))))
+
+      (t/testing "preserves other columns unchanged"
+        (t/is (= (tc/column clean-data :timestamp) (tc/column noisy-data :timestamp))))
+
+      (t/testing "with zero noise returns values close to original"
+        (let [zero-noise (sut/add-gaussian-noise clean-data :PpInMs 0.0)
+              original-val (first (tc/column clean-data :PpInMs))
+              zero-noise-val (first (tc/column zero-noise :PpInMs))]
+          (t/is (< (Math/abs (- zero-noise-val original-val)) 0.1))))
+
+      (t/testing "with non-zero noise changes values"
+        (let [with-noise (sut/add-gaussian-noise clean-data :PpInMs 5.0)
+              original-val (first (tc/column clean-data :PpInMs))
+              noisy-val (first (tc/column with-noise :PpInMs))]
+          (t/is (not= original-val noisy-val)) ; Should be different due to noise
+          (t/is (< (Math/abs (- noisy-val original-val)) 50)))) ; Reasonable noise range
+
+      (t/testing "uses default parameters"
+        (t/is (not (nil? (sut/add-gaussian-noise clean-data :PpInMs))))
+        (t/is (not (nil? (sut/add-gaussian-noise clean-data))))))))
+
+(t/deftest add-outliers-test
+  (t/testing "adds outlier artifacts to PPI data"
+    (let [base-time (java-time/local-date-time 2025 1 1 12 0 0)
+          clean-data (tc/dataset {:timestamp (mapv #(java-time/plus base-time (java-time/millis (* % 1000)))
+                                                   (range 10))
+                                  :PpInMs [800 810 805 820 815 825 800 830 810 820]})
+          original-std (tcc/standard-deviation (tc/column clean-data :PpInMs))]
+
+      (t/testing "with zero probability returns unchanged data"
+        (let [no-outliers (sut/add-outliers clean-data :PpInMs 0.0 2.0)]
+          (t/is (= (tc/column clean-data :PpInMs) (tc/column no-outliers :PpInMs)))))
+
+      (t/testing "with high probability creates outliers"
+        (let [with-outliers (sut/add-outliers clean-data :PpInMs 1.0 2.0) ; 100% outlier rate
+              outlier-std (tcc/standard-deviation (tc/column with-outliers :PpInMs))]
+          (t/is (> outlier-std original-std)) ; Should increase variability
+          (t/is (= (tc/row-count clean-data) (tc/row-count with-outliers))))) ; Same row count
+
+      (t/testing "outlier magnitude affects deviation"
+        (let [mild-outliers (sut/add-outliers clean-data :PpInMs 0.5 1.5)
+              severe-outliers (sut/add-outliers clean-data :PpInMs 0.5 3.0)
+              mild-range (- (tcc/reduce-max (tc/column mild-outliers :PpInMs))
+                            (tcc/reduce-min (tc/column mild-outliers :PpInMs)))
+              severe-range (- (tcc/reduce-max (tc/column severe-outliers :PpInMs))
+                              (tcc/reduce-min (tc/column severe-outliers :PpInMs)))]
+          (t/is (< mild-range severe-range)))) ; Severe outliers should have larger range
+
+      (t/testing "uses default parameters correctly"
+        (t/is (not (nil? (sut/add-outliers clean-data :PpInMs 0.1))))
+        (t/is (not (nil? (sut/add-outliers clean-data :PpInMs))))
+        (t/is (not (nil? (sut/add-outliers clean-data))))))))
+
+(t/deftest add-missing-beats-test
+  (t/testing "simulates missing heartbeat detections"
+    (let [base-time (java-time/local-date-time 2025 1 1 12 0 0)
+          clean-data (tc/dataset {:timestamp (mapv #(java-time/plus base-time (java-time/millis (* % 1000)))
+                                                   (range 5))
+                                  :PpInMs [800 800 800 800 800]})
+          original-max (tcc/reduce-max (tc/column clean-data :PpInMs))]
+
+      (t/testing "with zero probability returns unchanged data"
+        (let [no-missing (sut/add-missing-beats clean-data :PpInMs 0.0)]
+          (t/is (= (tc/column clean-data :PpInMs) (tc/column no-missing :PpInMs)))))
+
+      (t/testing "with high probability doubles some intervals"
+        (let [with-missing (sut/add-missing-beats clean-data :PpInMs 1.0) ; 100% missing rate
+              new-max (tcc/reduce-max (tc/column with-missing :PpInMs))]
+          (t/is (>= new-max (* 2 original-max))) ; Should have doubled intervals
+          (t/is (= (tc/row-count clean-data) (tc/row-count with-missing))))) ; Same row count
+
+      (t/testing "preserves dataset structure"
+        (let [with-missing (sut/add-missing-beats clean-data :PpInMs 0.2)]
+          (t/is (= (tc/column-names clean-data) (tc/column-names with-missing)))
+          (t/is (= (tc/column clean-data :timestamp) (tc/column with-missing :timestamp)))))
+
+      (t/testing "uses default parameters"
+        (t/is (not (nil? (sut/add-missing-beats clean-data :PpInMs))))
+        (t/is (not (nil? (sut/add-missing-beats clean-data))))))))
+
+(t/deftest add-extra-beats-test
+  (t/testing "simulates false positive heartbeat detections"
+    (let [base-time (java-time/local-date-time 2025 1 1 12 0 0)
+          clean-data (tc/dataset {:timestamp (mapv #(java-time/plus base-time (java-time/millis (* % 1000)))
+                                                   (range 5))
+                                  :PpInMs [800 800 800 800 800]
+                                  :heartbeat-id [1 2 3 4 5]})
+          original-count (tc/row-count clean-data)]
+
+      (t/testing "with zero probability returns unchanged data"
+        (let [no-extra (sut/add-extra-beats clean-data :PpInMs 0.0)]
+          (t/is (= (tc/row-count clean-data) (tc/row-count no-extra)))
+          (t/is (= (tc/column clean-data :PpInMs) (tc/column no-extra :PpInMs)))))
+
+      (t/testing "with high probability adds extra beats"
+        (let [with-extra (sut/add-extra-beats clean-data :PpInMs 1.0)] ; 100% extra rate
+          (t/is (>= (tc/row-count with-extra) original-count)) ; Should add rows
+          (t/is (some #(< % 800) (tc/column with-extra :PpInMs))))) ; Should have halved intervals
+
+      (t/testing "preserves column names and types"
+        (let [with-extra (sut/add-extra-beats clean-data :PpInMs 0.2)]
+          (t/is (= (set (tc/column-names clean-data)) (set (tc/column-names with-extra))))))
+
+      (t/testing "uses default parameters"
+        (t/is (not (nil? (sut/add-extra-beats clean-data :PpInMs))))
+        (t/is (not (nil? (sut/add-extra-beats clean-data))))))))
+
+(t/deftest add-trend-drift-test
+  (t/testing "adds gradual trend drift to intervals"
+    (let [base-time (java-time/local-date-time 2025 1 1 12 0 0)
+          clean-data (tc/dataset {:timestamp (mapv #(java-time/plus base-time (java-time/millis (* % 1000)))
+                                                   (range 10))
+                                  :PpInMs (repeat 10 800)})
+          first-val 800]
+
+      (t/testing "with zero drift magnitude returns values close to original"
+        (let [no-drift (sut/add-trend-drift clean-data :PpInMs 0.0 :increase)
+              original-vals (tc/column clean-data :PpInMs)
+              drift-vals (tc/column no-drift :PpInMs)]
+          (t/is (every? #(< (Math/abs %) 0.1) (mapv - drift-vals original-vals)))))
+
+      (t/testing "increasing drift direction"
+        (let [increase-drift (sut/add-trend-drift clean-data :PpInMs 40.0 :increase)
+              first-new (first (tc/column increase-drift :PpInMs))
+              last-new (last (tc/column increase-drift :PpInMs))]
+          (t/is (< first-new last-new)) ; Last should be greater than first
+          (t/is (>= (- last-new first-new) 35.0)))) ; Should have significant drift
+
+      (t/testing "decreasing drift direction"
+        (let [decrease-drift (sut/add-trend-drift clean-data :PpInMs 40.0 :decrease)
+              first-new (first (tc/column decrease-drift :PpInMs))
+              last-new (last (tc/column decrease-drift :PpInMs))]
+          (t/is (> first-new last-new)) ; First should be greater than last
+          (t/is (>= (- first-new last-new) 35.0)))) ; Should have significant drift
+
+      (t/testing "random drift direction"
+        (let [random-drift (sut/add-trend-drift clean-data :PpInMs 40.0 :random)
+              first-new (first (tc/column random-drift :PpInMs))
+              last-new (last (tc/column random-drift :PpInMs))]
+          (t/is (not= first-new last-new)))) ; Should have some drift
+
+      (t/testing "preserves dataset structure"
+        (let [with-drift (sut/add-trend-drift clean-data :PpInMs 30.0 :increase)]
+          (t/is (= (tc/column-names clean-data) (tc/column-names with-drift)))
+          (t/is (= (tc/row-count clean-data) (tc/row-count with-drift)))))
+
+      (t/testing "uses default parameters"
+        (t/is (not (nil? (sut/add-trend-drift clean-data :PpInMs 20.0))))
+        (t/is (not (nil? (sut/add-trend-drift clean-data :PpInMs))))
+        (t/is (not (nil? (sut/add-trend-drift clean-data))))))))
+
+(t/deftest distort-segment-test
+  (t/testing "applies combined realistic distortions"
+    (let [base-time (java-time/local-date-time 2025 1 1 12 0 0)
+          clean-data (tc/dataset {:timestamp (mapv #(java-time/plus base-time (java-time/millis (* % 1000)))
+                                                   (range 20))
+                                  :PpInMs (repeat 20 800)
+                                  :Device-UUID (repeat 20 "test-device")})
+          original-std (tcc/standard-deviation (tc/column clean-data :PpInMs))]
+
+      (t/testing "with default parameters applies moderate distortions"
+        (let [distorted (sut/distort-segment clean-data {})
+              distorted-std (tcc/standard-deviation (tc/column distorted :PpInMs))]
+          (t/is (>= distorted-std original-std)) ; Should increase variability
+          (t/is (>= (tc/row-count distorted) (tc/row-count clean-data))))) ; May add extra beats
+
+      (t/testing "with custom parameters applies specified distortions"
+        (let [heavy-params {:noise-std 10.0
+                            :outlier-prob 0.1
+                            :missing-prob 0.05
+                            :extra-prob 0.05
+                            :drift-magnitude 50.0}
+              heavy-distorted (sut/distort-segment clean-data heavy-params)
+              heavy-std (tcc/standard-deviation (tc/column heavy-distorted :PpInMs))]
+          (t/is (> heavy-std original-std)) ; Should significantly increase variability
+          (t/is (>= (tc/row-count heavy-distorted) (tc/row-count clean-data)))))
+
+      (t/testing "with zero parameters returns minimally changed data"
+        (let [minimal-params {:noise-std 0.0
+                              :outlier-prob 0.0
+                              :missing-prob 0.0
+                              :extra-prob 0.0
+                              :drift-magnitude 0.0}
+              minimal-distorted (sut/distort-segment clean-data minimal-params)]
+          ; Should be very close to original (only random variations)
+          (t/is (= (tc/row-count clean-data) (tc/row-count minimal-distorted)))))
+
+      (t/testing "preserves essential dataset structure"
+        (let [distorted (sut/distort-segment clean-data {})]
+          (t/is (contains? (set (tc/column-names distorted)) :PpInMs))
+          (t/is (contains? (set (tc/column-names distorted)) :timestamp))
+          (t/is (contains? (set (tc/column-names distorted)) :Device-UUID))))
+
+      (t/testing "works with custom PPI column name"
+        (let [custom-data (tc/rename-columns clean-data {:PpInMs :HeartInterval})
+              custom-params {:ppi-colname :HeartInterval}
+              distorted (sut/distort-segment custom-data custom-params)]
+          (t/is (contains? (set (tc/column-names distorted)) :HeartInterval))
+          (t/is (>= (tc/row-count distorted) (tc/row-count custom-data)))))
+
+      (t/testing "single parameter convenience"
+        (t/is (not (nil? (sut/distort-segment clean-data))))))))
+
+(t/deftest distortion-functions-integration-test
+  (t/testing "distortion functions work together in realistic scenarios"
+    (let [base-time (java-time/local-date-time 2025 1 1 12 0 0)
+          ;; Create realistic clean HRV segment
+          clean-intervals [800 820 790 830 810 840 795 825 815 805]
+          clean-data (tc/dataset {:timestamp (map #(java-time/plus base-time (java-time/millis (* % 800)))
+                                                  (range (count clean-intervals)))
+                                  :PpInMs clean-intervals
+                                  :Device-UUID (repeat (count clean-intervals) "device-1")
+                                  :heartbeat-id (range (count clean-intervals))})
+
+          ;; Calculate original RMSSD for comparison
+          original-intervals (tc/column clean-data :PpInMs)
+          original-diffs (mapv - (rest original-intervals) original-intervals)
+          original-rmssd (Math/sqrt (/ (reduce + (mapv #(* % %) original-diffs))
+                                       (count original-diffs)))]
+
+      (t/testing "sequential distortion application"
+        (let [step1 (sut/add-gaussian-noise clean-data :PpInMs 3.0)
+              step2 (sut/add-outliers step1 :PpInMs 0.1 2.0)
+              step3 (sut/add-missing-beats step2 :PpInMs 0.05)
+              step4 (sut/add-extra-beats step3 :PpInMs 0.05)
+              final-step (sut/add-trend-drift step4 :PpInMs 30.0 :increase)]
+
+          (t/is (>= (tc/row-count final-step) (tc/row-count clean-data))) ; May have added beats
+          (t/is (contains? (set (tc/column-names final-step)) :PpInMs))
+          (t/is (contains? (set (tc/column-names final-step)) :timestamp))))
+
+      (t/testing "distortion affects RMSSD calculation meaningfully"
+        (let [light-distorted (sut/distort-segment clean-data {:noise-std 1.0
+                                                               :outlier-prob 0.01
+                                                               :missing-prob 0.005
+                                                               :extra-prob 0.005
+                                                               :drift-magnitude 10.0})
+              heavy-distorted (sut/distort-segment clean-data {:noise-std 8.0
+                                                               :outlier-prob 0.05
+                                                               :missing-prob 0.02
+                                                               :extra-prob 0.02
+                                                               :drift-magnitude 60.0})
+
+              ;; Calculate RMSSD for distorted data
+              light-intervals (tc/column light-distorted :PpInMs)
+              light-diffs (mapv - (rest light-intervals) light-intervals)
+              light-rmssd (Math/sqrt (/ (reduce + (mapv #(* % %) light-diffs))
+                                        (count light-diffs)))
+
+              heavy-intervals (tc/column heavy-distorted :PpInMs)
+              heavy-diffs (mapv - (rest heavy-intervals) heavy-intervals)
+              heavy-rmssd (Math/sqrt (/ (reduce + (mapv #(* % %) heavy-diffs))
+                                        (count heavy-diffs)))]
+
+          ;; Light distortions should have less impact than heavy distortions
+          (t/is (< (Math/abs (- light-rmssd original-rmssd))
+                   (Math/abs (- heavy-rmssd original-rmssd))))
+
+          ;; Both should be different from original
+          (t/is (not= light-rmssd original-rmssd))
+          (t/is (not= heavy-rmssd original-rmssd))))
+
+      (t/testing "distortions preserve timestamp ordering"
+        (let [distorted (sut/distort-segment clean-data {})
+              timestamps (tc/column distorted :timestamp)]
+          ;; Timestamps should still be in non-decreasing order (extra beats may duplicate)
+          (t/is (every? (fn [[a b]] (<= (compare a b) 0))
+                        (partition 2 1 timestamps)))))
+
+      (t/testing "realistic evaluation scenario"
+        (let [evaluation-scenarios [["minimal" {:noise-std 0.5}]
+                                    ["light" {:noise-std 2.0 :outlier-prob 0.005}]
+                                    ["moderate" {}] ; default parameters
+                                    ["heavy" {:noise-std 6.0 :outlier-prob 0.02 :missing-prob 0.01}]]
+
+              results (for [[scenario-name params] evaluation-scenarios]
+                        (let [distorted (sut/distort-segment clean-data params)]
+                          [scenario-name
+                           (tc/row-count distorted)
+                           (tcc/standard-deviation (tc/column distorted :PpInMs))]))]
+
+          ;; All scenarios should produce valid datasets
+          (t/is (every? (fn [[_ count _]] (> count 0)) results))
+
+          ;; Heavy distortions should generally have higher variability than light
+          (let [heavy-std (last (last results))
+                light-std (second (second results))]
+            (t/is (> heavy-std light-std))))))))
+
+(t/deftest distortion-functions-performance-test
+  (t/testing "distortion functions perform well with larger datasets"
+    (let [base-time (java-time/local-date-time 2025 1 1 12 0 0)
+          ;; Create larger dataset (5 minutes of data at ~75 BPM)
+          large-intervals (cycle [800 820 790 830 810 840 795 825 815 805])
+          large-size 400
+          large-data (tc/dataset {:timestamp (map #(java-time/plus base-time (java-time/millis (* % 800)))
+                                                  (range large-size))
+                                  :PpInMs (take large-size large-intervals)
+                                  :Device-UUID (repeat large-size "device-1")
+                                  :heartbeat-id (range large-size)})]
+
+      (t/testing "handles large datasets efficiently"
+        (let [start-time (System/nanoTime)
+              distorted (sut/distort-segment large-data {})
+              end-time (System/nanoTime)
+              duration-ms (/ (- end-time start-time) 1000000.0)]
+
+          (t/is (>= (tc/row-count distorted) large-size))
+          (t/is (< duration-ms 100.0)) ; Should complete in reasonable time
+          (t/is (contains? (set (tc/column-names distorted)) :PpInMs))))
+
+      (t/testing "all individual functions handle large datasets"
+        (doseq [distort-fn [sut/add-gaussian-noise
+                            sut/add-outliers
+                            sut/add-missing-beats
+                            sut/add-extra-beats
+                            sut/add-trend-drift]]
+          (let [result (distort-fn large-data)]
+            (t/is (>= (tc/row-count result) (* 0.9 large-size))) ; Allow for some variation
+            (t/is (contains? (set (tc/column-names result)) :PpInMs))))))))
 
 
 

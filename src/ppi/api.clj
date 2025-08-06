@@ -561,7 +561,250 @@
                        rmssd (Math/sqrt mean-squared)]
                    rmssd))))))))))
 
+(defn add-gaussian-noise
+  "Add Gaussian (normal) noise to PPI intervals to simulate measurement variability.
+  
+  **Args:**
+  - `data` - Dataset containing PPI intervals
+  - `ppi-colname` - Column name containing PPI intervals (default: :PpInMs) 
+  - `noise-std` - Standard deviation of noise in milliseconds (default: 5.0)
+  
+  **Returns:**
+  Dataset with noisy PPI intervals
+  
+  **Example:**
+  ```clojure
+  ;; Add 5ms standard deviation noise to clean data
+  (add-gaussian-noise clean-data :PpInMs 5.0)
+  ```"
+  ([data ppi-colname noise-std]
+   (let [ppi-values (tc/column data ppi-colname)
+         rng (random/rng :mersenne)
+         noisy-values (mapv (fn [ppi]
+                              (+ ppi (random/grandom rng 0.0 noise-std)))
+                            ppi-values)]
+     (tc/add-columns data {ppi-colname noisy-values})))
+  ([data ppi-colname]
+   (add-gaussian-noise data ppi-colname 5.0))
+  ([data]
+   (add-gaussian-noise data :PpInMs 5.0)))
 
+(defn add-outliers
+  "Add outlier artifacts to simulate sensor malfunctions or movement artifacts.
+  
+  **Args:**
+  - `data` - Dataset containing PPI intervals
+  - `ppi-colname` - Column name containing PPI intervals (default: :PpInMs)
+  - `outlier-probability` - Probability of each sample being an outlier (default: 0.02 = 2%)
+  - `outlier-magnitude` - Multiplier for outlier deviation (default: 3.0)
+  
+  **Returns:**
+  Dataset with outlier artifacts added
+  
+  **Example:**
+  ```clojure
+  ;; Add outliers to 2% of samples with 3x normal deviation
+  (add-outliers clean-data :PpInMs 0.02 3.0)
+  ```"
+  ([data ppi-colname outlier-probability outlier-magnitude]
+   (let [ppi-values (tc/column data ppi-colname)
+         mean-ppi (tcc/mean ppi-values)
+         std-ppi (tcc/standard-deviation ppi-values)
+         rng (random/rng :mersenne)
+         outlier-values (mapv (fn [ppi]
+                                (if (< (random/drandom rng) outlier-probability)
+                                  ;; Create outlier: mean ± (outlier-magnitude * std)
+                                  (let [sign (if (< (random/drandom rng) 0.5) -1 1)
+                                        deviation (* sign outlier-magnitude std-ppi)]
+                                    (+ mean-ppi deviation))
+                                  ;; Keep original value
+                                  ppi))
+                              ppi-values)]
+     (tc/add-columns data {ppi-colname outlier-values})))
+  ([data ppi-colname outlier-probability]
+   (add-outliers data ppi-colname outlier-probability 3.0))
+  ([data ppi-colname]
+   (add-outliers data ppi-colname 0.02 3.0))
+  ([data]
+   (add-outliers data :PpInMs 0.02 3.0)))
 
+(defn add-missing-beats
+  "Simulate missing heartbeat detections by randomly doubling some intervals.
+  
+  This simulates the common artifact where one heartbeat is missed, causing
+  the next detected interval to be approximately twice as long.
+  
+  **Args:**
+  - `data` - Dataset containing PPI intervals
+  - `ppi-colname` - Column name containing PPI intervals (default: :PpInMs)
+  - `missing-probability` - Probability of missing beat at each position (default: 0.01 = 1%)
+  
+  **Returns:**
+  Dataset with missing beat artifacts (doubled intervals)
+  
+  **Example:**
+  ```clojure
+  ;; Simulate 1% missing beat rate
+  (add-missing-beats clean-data :PpInMs 0.01)
+  ```"
+  ([data ppi-colname missing-probability]
+   (let [ppi-values (tc/column data ppi-colname)
+         rng (random/rng :mersenne)
+         missing-beat-values (mapv (fn [ppi]
+                                     (if (< (random/drandom rng) missing-probability)
+                                       ;; Double the interval (missing beat)
+                                       (* ppi 2)
+                                       ;; Keep original value
+                                       ppi))
+                                   ppi-values)]
+     (tc/add-columns data {ppi-colname missing-beat-values})))
+  ([data ppi-colname]
+   (add-missing-beats data ppi-colname 0.01))
+  ([data]
+   (add-missing-beats data :PpInMs 0.01)))
+
+(defn add-extra-beats
+  "Simulate false positive heartbeat detections by randomly halving some intervals.
+  
+  This simulates the common artifact where noise is detected as an extra heartbeat,
+  causing one interval to be split into approximately two half-length intervals.
+  
+  **Args:**
+  - `data` - Dataset containing PPI intervals
+  - `ppi-colname` - Column name containing PPI intervals (default: :PpInMs)
+  - `extra-probability` - Probability of extra beat at each position (default: 0.01 = 1%)
+  
+  **Returns:**
+  Dataset with extra beat artifacts (halved intervals followed by normal intervals)
+  
+  **Note:** This function modifies the dataset length by inserting additional rows.
+  
+  **Example:**
+  ```clojure
+  ;; Simulate 1% extra beat rate
+  (add-extra-beats clean-data :PpInMs 0.01)
+  ```"
+  ([data ppi-colname extra-probability]
+   (let [rows (tc/rows data :as-maps)
+         rng (random/rng :mersenne)
+         modified-rows (reduce (fn [acc row]
+                                 (let [ppi-val (get row ppi-colname)]
+                                   (if (and ppi-val (< (random/drandom rng) extra-probability))
+                                     ;; Add extra beat: split interval in half
+                                     (let [half-interval (/ ppi-val 2)
+                                           first-row (assoc row ppi-colname half-interval)
+                                           second-row (assoc row ppi-colname half-interval)]
+                                       (conj acc first-row second-row))
+                                     ;; Keep original row
+                                     (conj acc row))))
+                               []
+                               rows)]
+     (tc/dataset modified-rows)))
+  ([data ppi-colname]
+   (add-extra-beats data ppi-colname 0.01))
+  ([data]
+   (add-extra-beats data :PpInMs 0.01)))
+
+(defn add-trend-drift
+  "Add gradual trend drift to simulate changes in autonomic state during measurement.
+  
+  This simulates the natural drift in heart rate that occurs during longer
+  measurements due to postural changes, breathing patterns, or autonomic shifts.
+  
+  **Args:**
+  - `data` - Dataset containing PPI intervals
+  - `ppi-colname` - Column name containing PPI intervals (default: :PpInMs)
+  - `drift-magnitude` - Maximum drift amount in milliseconds (default: 50.0)
+  - `drift-direction` - Drift direction: :increase, :decrease, or :random (default: :random)
+  
+  **Returns:**
+  Dataset with gradual trend drift added
+  
+  **Example:**
+  ```clojure
+  ;; Add gradual 50ms increase over the measurement period
+  (add-trend-drift clean-data :PpInMs 50.0 :increase)
+  ```"
+  ([data ppi-colname drift-magnitude drift-direction]
+   (let [ppi-values (tc/column data ppi-colname)
+         n (count ppi-values)
+         rng (random/rng :mersenne)
+         ;; Determine drift direction
+         direction-multiplier (case drift-direction
+                                :increase 1.0
+                                :decrease -1.0
+                                :random (if (< (random/drandom rng) 0.5) -1.0 1.0)
+                                1.0)
+         ;; Create linear drift over time
+         drift-values (mapv (fn [i ppi]
+                              (let [progress (/ (double i) (double (dec n)))
+                                    drift-amount (* direction-multiplier drift-magnitude progress)]
+                                (+ ppi drift-amount)))
+                            (range n)
+                            ppi-values)]
+     (tc/add-columns data {ppi-colname drift-values})))
+  ([data ppi-colname drift-magnitude]
+   (add-trend-drift data ppi-colname drift-magnitude :random))
+  ([data ppi-colname]
+   (add-trend-drift data ppi-colname 50.0 :random))
+  ([data]
+   (add-trend-drift data :PpInMs 50.0 :random)))
+
+(defn distort-segment
+  "Apply multiple realistic distortions to clean HRV data for algorithm evaluation.
+  
+  Combines multiple types of artifacts commonly seen in real HRV measurements
+  to create realistic test data for evaluating cleaning and smoothing algorithms.
+  
+  **Args:**
+  - `clean-data` - Clean dataset containing PPI intervals
+  - `distortion-params` - Map containing distortion parameters:
+    - `:noise-std` - Gaussian noise standard deviation (ms, default: 3.0)
+    - `:outlier-prob` - Outlier probability (default: 0.015 = 1.5%)
+    - `:outlier-magnitude` - Outlier magnitude multiplier (default: 2.5)
+    - `:missing-prob` - Missing beat probability (default: 0.008 = 0.8%)
+    - `:extra-prob` - Extra beat probability (default: 0.005 = 0.5%)
+    - `:drift-magnitude` - Trend drift magnitude in ms (default: 30.0)
+    - `:ppi-colname` - PPI column name (default: :PpInMs)
+  
+  **Returns:**
+  Dataset with realistic distortions applied
+  
+  **Example:**
+  ```clojure
+  ;; Apply moderate distortions with default parameters
+  (distort-segment clean-data {})
+  
+  ;; Apply heavy distortions
+  (distort-segment clean-data {:noise-std 8.0
+                               :outlier-prob 0.03
+                               :missing-prob 0.02})
+  ```"
+  ([clean-data distortion-params]
+   (let [params (merge {:noise-std 3.0
+                        :outlier-prob 0.015
+                        :outlier-magnitude 2.5
+                        :missing-prob 0.008
+                        :extra-prob 0.005
+                        :drift-magnitude 30.0
+                        :ppi-colname :PpInMs}
+                       distortion-params)
+         {:keys [noise-std outlier-prob outlier-magnitude missing-prob
+                 extra-prob drift-magnitude ppi-colname]} params]
+
+     ;; Apply distortions in sequence
+     (-> clean-data
+         ;; Add baseline noise
+         (add-gaussian-noise ppi-colname noise-std)
+         ;; Add occasional outliers
+         (add-outliers ppi-colname outlier-prob outlier-magnitude)
+         ;; Add missing beats (doubles intervals)
+         (add-missing-beats ppi-colname missing-prob)
+         ;; Add extra beats (splits intervals, increases row count)
+         (add-extra-beats ppi-colname extra-prob)
+         ;; Add gradual drift
+         (add-trend-drift ppi-colname drift-magnitude))))
+  ([clean-data]
+   (distort-segment clean-data {})))
 
 
