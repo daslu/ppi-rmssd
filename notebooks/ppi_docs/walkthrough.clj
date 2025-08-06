@@ -165,3 +165,121 @@
                              :=histogram-nbins 100}))
 
 
+;; ## Precise Timestamp Calculation
+;;
+;; The client timestamps show when measurements were sent, but we need the actual
+;; measurement times. We calculate precise timestamps by adding accumulated
+;; pulse-to-pulse intervals to the client timestamp.
+
+(def data-with-timestamps
+  (ppi/add-timestamps recent-data))
+
+;; **Corrected Time Series Visualization**
+;; Now plot using the corrected timestamps - this shows the actual measurement timing
+
+(-> data-with-timestamps
+    (tc/select-rows #(= (:Device-UUID %)
+                        #uuid "8d453046-24f2-921e-34be-7ed0d7a37d6f"))
+    (tc/order-by [:timestamp])
+    (plotly/layer-line {:=x :timestamp
+                        :=y :PpInMs}))
+
+;; Zoom in to see that now we have higher-resolution timestamps:
+
+(-> data-with-timestamps
+    (tc/select-rows #(and (= (:Device-UUID %)
+                             #uuid "8d453046-24f2-921e-34be-7ed0d7a37d6f")
+                          (java-time/after? (:timestamp %)
+                                            (java-time/local-date-time 2025 5 27 8 30))
+                          (java-time/before? (:timestamp %)
+                                             (java-time/local-date-time 2025 5 27 9))))
+    (tc/order-by [:timestamp])
+    (plotly/layer-line {:=x :timestamp
+                        :=y :PpInMs}))
+
+;; The relationship between the minute-resolution original `:Client-Timestamp`
+;; to the refined, higher-resolution, `:timestamp`:
+
+(-> data-with-timestamps
+    (tc/select-rows #(and (= (:Device-UUID %)
+                             #uuid "8d453046-24f2-921e-34be-7ed0d7a37d6f")
+                          (java-time/after? (:timestamp %)
+                                            (java-time/local-date-time 2025 5 27 8 30))
+                          (java-time/before? (:timestamp %)
+                                             (java-time/local-date-time 2025 5 27 9))))
+    (tc/order-by [:timestamp])
+    (plotly/layer-point {:=x :timestamp
+                         :=y :Client-Timestamp}))
+
+;; ## Time Series Segmentation
+;;
+;; Medical devices can have interruptions in data collection (battery changes, 
+;; device resets, etc.). We detect these gaps and segment the continuous periods.
+
+;; **Jump Detection: The 5-Second Rule**
+;; 
+;; **Parameter Selection Rationale**: We use a 5000ms (5-second) jump threshold based on:
+;; - Normal PPI intervals: 600-1200ms for healthy adults
+;; - Maximum physiological change: ~3x during extreme exercise transitions
+;; - Safety margin: 5 seconds allows for any conceivable physiological change
+;;
+;; This conservative threshold ensures we don't split continuous recordings while 
+;; reliably detecting device interruptions, battery changes, or data transmission gaps.
+
+(let [params {:jump-threshold 5000}
+      device-data-with-jumps (-> data-with-timestamps
+                                 (tc/select-rows #(= (:Device-UUID %)
+                                                     #uuid "8d453046-24f2-921e-34be-7ed0d7a37d6f"))
+                                 (ppi/recognize-jumps params)
+                                 (tc/select-columns [:timestamp :delta-timestamp :jump :jump-count]))]
+  (kind/hiccup
+   [:div
+    [:div {:style {:max-height "400px"
+                   :overflow-y "auto"}}
+     (-> device-data-with-jumps
+         (print/print-range :all))]
+    (-> device-data-with-jumps
+        (plotly/layer-point {:=x :timestamp
+                             :=y :jump-count}))]))
+
+;; Now, let us partition the data into segments, where every jump in time
+;; is a division between segments.
+
+(let [params {:jump-threshold 5000}
+      segments (-> data-with-timestamps
+                   (tc/select-rows #(= (:Device-UUID %)
+                                       #uuid "8d453046-24f2-921e-34be-7ed0d7a37d6f"))
+                   (ppi/recognize-jumps params)
+                   (tc/group-by [:jump-count] {:result-type :as-seq}))]
+  (kind/hiccup
+   (into [:div.limited-height]
+         (comp
+          (filter (fn [segment]
+                    (-> segment
+                        tc/row-count
+                        (> 2))))
+          (map (fn [segment]
+                 (-> segment
+                     (tc/order-by [:timestamp])
+                     (plotly/layer-line {:=x :timestamp
+                                         :=y :PpInMs})))))
+         segments)))
+
+;; ## Final data preparation
+
+;; Here we prepare the main dataset to be used in this project.
+;; 
+
+(def continuous-pp-data
+  (let [params {:jump-threshold 5000}]
+    (-> data-with-timestamps
+        (tc/select-columns [:Device-UUID :timestamp :PpErrorEstimate]))))
+
+continuous-pp-data
+
+(def continuous-csv-path "data/continuous-pp.csv.gz")
+
+(when-not (fs/exists? continuous-csv-path)
+  (tc/write! continuous-pp-data continuous-csv-path))
+
+
