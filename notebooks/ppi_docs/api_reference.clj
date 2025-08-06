@@ -5,14 +5,24 @@
 
 ^:kindly/hide-code
 (ns ppi-docs.api-reference
-  (:require [scicloj.kindly.v4.kind :as kind]
-            [scicloj.kindly.v4.api :as kindly]
-            [clojure.string :as str]
-            [tablecloth.api :as tc]
-            [java-time.api :as java-time]
-            [clojure.math :as math]
-            [ppi.api :as ppi]
-            [babashka.fs :as fs]))
+  (:require
+   [babashka.fs :as fs]
+   [clojure.math :as math]
+   [clojure.string :as str]
+   [java-time.api :as java-time]
+   [ppi.api :as ppi]
+   [scicloj.kindly.v4.api :as kindly]
+   [scicloj.kindly.v4.kind :as kind]
+   [tablecloth.api :as tc]))
+
+(require '[babashka.fs :as fs]
+         '[clojure.math :as math]
+         '[clojure.string :as str]
+         '[java-time.api :as java-time]
+         '[ppi.api :as ppi]
+         '[scicloj.kindly.v4.api :as kindly]
+         '[scicloj.kindly.v4.kind :as kind]
+         '[tablecloth.api :as tc])
 
 ^:kindly/hide-code
 (defn include-fnvar-as-section [fnvar]
