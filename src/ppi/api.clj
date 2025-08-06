@@ -809,6 +809,8 @@
 
 ;; ## Simple Smoothing Functions for Streaming Analysis
 
+;; ## Simple Smoothing Functions for Streaming Analysis
+
 (defn moving-average
   "Calculate simple moving average of recent data in windowed dataset.
   
@@ -835,5 +837,101 @@
          (/ (reduce + recent-values) window-size)))))
   ([windowed-dataset window-size]
    (moving-average windowed-dataset window-size :PpInMs)))
+
+(defn median-filter
+  "Apply median filter to the most recent data in a windowed dataset.
+  
+  **Args:**
+  - `windowed-dataset` - a `WindowedDataset` 
+  - `window-size` - number of recent samples to use for median calculation
+  - `ppi-colname` - column name containing PPI intervals (default: :PpInMs)
+  
+  **Returns:**
+  Median value of the most recent window-size samples, or nil if insufficient data
+  
+  **Example:**
+  ```clojure
+  ;; Get median of last 5 samples
+  (median-filter wd 5 :PpInMs)
+  ```"
+  ([windowed-dataset window-size ppi-colname]
+   (let [{:keys [current-size]} windowed-dataset]
+     (when (>= current-size window-size)
+       (let [recent-data (windowed-dataset->dataset windowed-dataset)
+             recent-values (-> recent-data
+                               (tc/tail window-size)
+                               (tc/column ppi-colname)
+                               vec
+                               sort)]
+         (nth recent-values (quot window-size 2))))))
+  ([windowed-dataset window-size]
+   (median-filter windowed-dataset window-size :PpInMs)))
+
+(defn cascaded-median-filter
+  "Apply cascaded median filters (3-point then 5-point) for robust smoothing.
+  
+  **Args:**
+  - `windowed-dataset` - a `WindowedDataset`
+  - `ppi-colname` - column name containing PPI intervals (default: :PpInMs)
+  
+  **Returns:**
+  Cascaded median filtered value, or nil if insufficient data (needs 5+ samples)
+  
+  **Example:**
+  ```clojure
+  ;; Apply 3-point then 5-point median filter
+  (cascaded-median-filter wd :PpInMs)
+  ```"
+  ([windowed-dataset ppi-colname]
+   (let [{:keys [current-size]} windowed-dataset]
+     (when (>= current-size 5)
+       ;; First apply 3-point median to recent 5 samples
+       (let [recent-data (windowed-dataset->dataset windowed-dataset)
+             recent-values (-> recent-data
+                               (tc/tail 5)
+                               (tc/column ppi-colname)
+                               vec)
+             ;; Apply 3-point median filter to each position
+             median-3-filtered (mapv (fn [i]
+                                       (if (and (>= i 1) (< i (- (count recent-values) 1)))
+                                         (let [window [(nth recent-values (- i 1))
+                                                       (nth recent-values i)
+                                                       (nth recent-values (+ i 1))]]
+                                           (nth (sort window) 1))
+                                         (nth recent-values i)))
+                                     (range (count recent-values)))
+             ;; Then take median of the 5-point filtered result
+             sorted-result (sort median-3-filtered)]
+         (nth sorted-result 2))))) ; median of 5 elements
+  ([windowed-dataset]
+   (cascaded-median-filter windowed-dataset :PpInMs)))
+
+(defn exponential-moving-average
+  "Calculate exponential moving average of recent data in windowed dataset.
+  
+  **Args:**
+  - `windowed-dataset` - a `WindowedDataset`
+  - `alpha` - smoothing factor (0 < alpha <= 1, higher = more responsive)
+  - `ppi-colname` - column name containing PPI intervals (default: :PpInMs)
+  
+  **Returns:**
+  EMA value, or nil if no data available
+  
+  **Example:**
+  ```clojure
+  ;; Calculate EMA with alpha=0.3 (moderate smoothing)
+  (exponential-moving-average wd 0.3 :PpInMs)
+  ```"
+  ([windowed-dataset alpha ppi-colname]
+   (let [{:keys [current-size]} windowed-dataset]
+     (when (> current-size 0)
+       (let [recent-data (windowed-dataset->dataset windowed-dataset)
+             values (tc/column recent-data ppi-colname)]
+         (reduce (fn [ema value]
+                   (+ (* alpha value) (* (- 1 alpha) ema)))
+                 (first values)
+                 (rest values))))))
+  ([windowed-dataset alpha]
+   (exponential-moving-average windowed-dataset alpha :PpInMs)))
 
 

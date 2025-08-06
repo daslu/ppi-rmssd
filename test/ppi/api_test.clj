@@ -1640,3 +1640,115 @@
       
       ;; Test precise calculation
       (t/is (< (Math/abs (- 810.5 (sut/moving-average populated-wd 3))) 0.01)))))
+
+(t/deftest median-filter-test
+  (t/testing "Basic median filter calculation"
+    (let [wd (sut/make-windowed-dataset {:PpInMs :int32} 10)
+          ;; Test data with outlier: [800, 810, 1500, 820, 830]
+          test-data (map (fn [v] {:PpInMs v}) [800 810 1500 820 830])
+          populated-wd (reduce sut/insert-to-windowed-dataset! wd test-data)]
+      
+      ;; Test different window sizes
+      (t/is (= 830 (sut/median-filter populated-wd 3)))  ; median of [1500 820 830] = 820
+      (t/is (= 830 (sut/median-filter populated-wd 4)))  ; median of [810 1500 820 830] = 815 (avg of 810,820)
+      (t/is (= 820 (sut/median-filter populated-wd 5)))  ; median of [800 810 1500 820 830] = 820
+      
+      ;; Test insufficient data
+      (t/is (nil? (sut/median-filter populated-wd 6)))))
+  
+  (t/testing "Odd vs even window sizes"
+    (let [wd (sut/make-windowed-dataset {:PpInMs :int32} 10)
+          test-data (map (fn [v] {:PpInMs v}) [100 200 300 400 500])
+          populated-wd (reduce sut/insert-to-windowed-dataset! wd test-data)]
+      
+      ;; Odd window size - true median
+      (t/is (= 300 (sut/median-filter populated-wd 5)))  ; [100 200 300 400 500] -> 300
+      (t/is (= 400 (sut/median-filter populated-wd 3)))  ; [300 400 500] -> 400
+      
+      ;; Even window size - lower middle element (by design)
+      (t/is (= 400 (sut/median-filter populated-wd 4)))  ; [200 300 400 500] -> 300 (index 1)
+      (t/is (= 500 (sut/median-filter populated-wd 2))))) ; [400 500] -> 400 (index 0)
+  
+  (t/testing "Custom column name"
+    (let [wd (sut/make-windowed-dataset {:CustomCol :int32} 5)
+          test-data [{:CustomCol 900} {:CustomCol 950} {:CustomCol 1000}]
+          populated-wd (reduce sut/insert-to-windowed-dataset! wd test-data)]
+      
+      (t/is (= 950 (sut/median-filter populated-wd 3 :CustomCol))))))
+
+(t/deftest cascaded-median-filter-test
+  (t/testing "Basic cascaded median filter"
+    (let [wd (sut/make-windowed-dataset {:PpInMs :int32} 10)
+          ;; Data with outliers that 3-point median should handle
+          test-data (map (fn [v] {:PpInMs v}) [800 1500 810 2000 820])  ; outliers at pos 1,3
+          populated-wd (reduce sut/insert-to-windowed-dataset! wd test-data)]
+      
+      ;; Should apply 3-point median first, then 5-point median
+      (t/is (number? (sut/cascaded-median-filter populated-wd)))
+      (t/is (not (nil? (sut/cascaded-median-filter populated-wd))))))
+  
+  (t/testing "Insufficient data"
+    (let [wd (sut/make-windowed-dataset {:PpInMs :int32} 10)
+          test-data (map (fn [v] {:PpInMs v}) [800 810 820])  ; only 3 samples
+          populated-wd (reduce sut/insert-to-windowed-dataset! wd test-data)]
+      
+      (t/is (nil? (sut/cascaded-median-filter populated-wd)))))  ; needs 5+ samples
+  
+  (t/testing "Exact 5 samples"
+    (let [wd (sut/make-windowed-dataset {:PpInMs :int32} 10)
+          test-data (map (fn [v] {:PpInMs v}) [800 810 820 830 840])
+          populated-wd (reduce sut/insert-to-windowed-dataset! wd test-data)]
+      
+      (t/is (number? (sut/cascaded-median-filter populated-wd)))))
+  
+  (t/testing "Custom column name"
+    (let [wd (sut/make-windowed-dataset {:Interval :int32} 8)
+          test-data (map (fn [v] {:Interval v}) [700 710 720 730 740])
+          populated-wd (reduce sut/insert-to-windowed-dataset! wd test-data)]
+      
+      (t/is (number? (sut/cascaded-median-filter populated-wd :Interval))))))
+
+(t/deftest exponential-moving-average-test
+  (t/testing "Basic EMA calculation"
+    (let [wd (sut/make-windowed-dataset {:PpInMs :float64} 10)
+          ;; Simple increasing sequence
+          test-data (map (fn [v] {:PpInMs (double v)}) [800 810 820])
+          populated-wd (reduce sut/insert-to-windowed-dataset! wd test-data)]
+      
+      ;; Test different alpha values
+      (let [ema-low (sut/exponential-moving-average populated-wd 0.1)
+            ema-high (sut/exponential-moving-average populated-wd 0.9)]
+        ;; Higher alpha should be closer to recent values
+        (t/is (> ema-high ema-low))
+        (t/is (number? ema-low))
+        (t/is (number? ema-high)))))
+  
+  (t/testing "Single sample"
+    (let [wd (sut/make-windowed-dataset {:PpInMs :float64} 5)
+          single-wd (sut/insert-to-windowed-dataset! wd {:PpInMs 800.0})]
+      
+      ;; EMA of single value should be that value
+      (t/is (= 800.0 (sut/exponential-moving-average single-wd 0.5)))))
+  
+  (t/testing "Empty dataset"
+    (let [empty-wd (sut/make-windowed-dataset {:PpInMs :float64} 5)]
+      (t/is (nil? (sut/exponential-moving-average empty-wd 0.3)))))
+  
+  (t/testing "Alpha edge cases"
+    (let [wd (sut/make-windowed-dataset {:PpInMs :float64} 5)
+          test-data [{:PpInMs 800.0} {:PpInMs 900.0}]
+          populated-wd (reduce sut/insert-to-windowed-dataset! wd test-data)]
+      
+      ;; Alpha = 1.0 should return the last value
+      (t/is (= 900.0 (sut/exponential-moving-average populated-wd 1.0)))
+      
+      ;; Alpha very small should be close to first value
+      (let [ema-tiny (sut/exponential-moving-average populated-wd 0.01)]
+        (t/is (< (Math/abs (- 801.0 ema-tiny)) 1.0)))))  ; Should be close to 800 + small adjustment
+  
+  (t/testing "Custom column name"
+    (let [wd (sut/make-windowed-dataset {:Rate :float64} 5)
+          test-data [{:Rate 75.0} {:Rate 80.0}]
+          populated-wd (reduce sut/insert-to-windowed-dataset! wd test-data)]
+      
+      (t/is (number? (sut/exponential-moving-average populated-wd 0.5 :Rate))))))
