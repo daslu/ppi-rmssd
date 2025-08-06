@@ -1,0 +1,3 @@
+{:quarto      {:format {:html {:theme [:cosmo "notebooks/custom.scss"]
+                               :number-sections false}}}
+ :base-target-path ".clay-temp"}
