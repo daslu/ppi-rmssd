@@ -36,6 +36,7 @@
   
   **Args:**
   
+  
   - `csv-line` - String containing a single CSV line with quote issues
     
   **Returns:**
@@ -55,6 +56,7 @@
   doesn't already exist.
   
   **Args:**
+  
   
   - `raw-csv-path` - String path to the input gzipped CSV file
   - `standard-csv-path` - String path for the output standardized gzipped CSV
@@ -88,6 +90,7 @@
   
   **Args:**
   
+  
   - `raw-data` - Tablecloth dataset from CSV with string columns
   - `colname-prefix` - String prefix to remove from column names
   
@@ -114,6 +117,7 @@
   
   **Args:**
   
+  
   - `prepared-data` - Dataset with parsed timestamps
   - `cutoff-date` - `java-time` LocalDateTime, records after this date are kept
   
@@ -135,6 +139,7 @@
   them to the client timestamp to get actual measurement times.
   
   **Args:**
+  
   
   - `data` - Tablecloth dataset containing columns:
     - `:Device-UUID` - device identifier  
@@ -170,6 +175,7 @@
   
   **Args:**
   
+  
   - `data` - Tablecloth dataset with `:Device-UUID` and `:timestamp` columns
   - `params` - Map containing:
     - `:jump-threshold` - minimum gap in milliseconds to consider a jump
@@ -204,6 +210,7 @@
 
   **Args:**
   
+  
   - `standard-csv-path` - path to the raw data
             
   **Returns:**
@@ -228,6 +235,7 @@
   
   **Args:**
   
+  
   - `values` - Sequence or array of numeric values
   
   **Returns:**
@@ -243,6 +251,7 @@
   "Calculate percentage changes between successive elements efficiently.
   
   **Args:**
+  
   
   - `values` - Sequence or array of numeric values
   
@@ -270,6 +279,7 @@
   Uses dtype-next fast statistical functions for improved performance.
   
   **Args:**
+  
   
   - `segment-data` - The time series of one segment of one device.
   - `params` - Map containing quality thresholds:
@@ -324,6 +334,7 @@
 
   **Args:**
   
+  
   - `column-types` - a map from column name to type
   - `max-size` - maximal window size to keep
 
@@ -343,6 +354,7 @@
   "Create a deep copy of a windowed dataset.
   
   **Args:**
+  
   
   - `windowed-dataset` - a `WindowedDataset`
   
@@ -374,6 +386,7 @@
   "Insert a new row to a `WindowedDataset`.
   
   **Args:**
+  
   
   - `windowed-dataset` - a `WindowedDataset`
   - `row` - A row represented as a map structure
@@ -408,6 +421,7 @@
   
   **Args:**
   
+  
   - `windowed-dataset` - a `WindowedDataset`
   
   **Returns:**
@@ -429,6 +443,7 @@
 
   **Args:**
   
+  
   - `windowed-dataset` - a `WindowedDataset`"
   [{:as windowed-dataset
     :keys [dataset]}]
@@ -442,6 +457,7 @@
   "Find the first index position where timestamp >= target-time using binary search.
   
   **Args:**
+  
   
   - `timestamp-col` - dataset column containing timestamps
   - `indices` - vector of indices in chronological order
@@ -466,6 +482,7 @@
   including only a recent time window. Uses binary search for optimal performance.
 
   **Args:**
+  
   
   - `windowed-dataset` - a `WindowedDataset`
   - `timestamp-colname` - the name of the column that contains timestamps
@@ -521,6 +538,7 @@
   
   **Args:**
   
+  
   - `windowed-dataset` - a `WindowedDataset` containing PPI data
   - `timestamp-colname` - the name of the column that contains timestamps  
   - `time-window` - window length in ms (from most recent timestamp backwards)
@@ -565,6 +583,7 @@
   "Add Gaussian (normal) noise to PPI intervals to simulate measurement variability.
   
   **Args:**
+  
   - `data` - Dataset containing PPI intervals
   - `ppi-colname` - Column name containing PPI intervals (default: :PpInMs) 
   - `noise-std` - Standard deviation of noise in milliseconds (default: 5.0)
@@ -593,6 +612,7 @@
   "Add outlier artifacts to simulate sensor malfunctions or movement artifacts.
   
   **Args:**
+  
   - `data` - Dataset containing PPI intervals
   - `ppi-colname` - Column name containing PPI intervals (default: :PpInMs)
   - `outlier-probability` - Probability of each sample being an outlier (default: 0.02 = 2%)
@@ -635,6 +655,7 @@
   the next detected interval to be approximately twice as long.
   
   **Args:**
+  
   - `data` - Dataset containing PPI intervals
   - `ppi-colname` - Column name containing PPI intervals (default: :PpInMs)
   - `missing-probability` - Probability of missing beat at each position (default: 0.01 = 1%)
@@ -670,6 +691,7 @@
   causing one interval to be split into approximately two half-length intervals.
   
   **Args:**
+  
   - `data` - Dataset containing PPI intervals
   - `ppi-colname` - Column name containing PPI intervals (default: :PpInMs)
   - `extra-probability` - Probability of extra beat at each position (default: 0.01 = 1%)
@@ -712,6 +734,7 @@
   measurements due to postural changes, breathing patterns, or autonomic shifts.
   
   **Args:**
+  
   - `data` - Dataset containing PPI intervals
   - `ppi-colname` - Column name containing PPI intervals (default: :PpInMs)
   - `drift-magnitude` - Maximum drift amount in milliseconds (default: 50.0)
@@ -757,6 +780,7 @@
   to create realistic test data for evaluating cleaning and smoothing algorithms.
   
   **Args:**
+  
   - `clean-data` - Clean dataset containing PPI intervals
   - `distortion-params` - Map containing distortion parameters:
     - `:noise-std` - Gaussian noise standard deviation (ms, default: 3.0)
@@ -815,18 +839,13 @@
   "Calculate simple moving average of recent data in windowed dataset.
   
   **Args:**
+  
   - `windowed-dataset` - a `WindowedDataset`
   - `window-size` - number of recent samples to average
   - `ppi-colname` - column name containing PPI intervals (default: :PpInMs)
   
   **Returns:**
-  Moving average of the most recent window-size samples, or nil if insufficient data
-  
-  **Example:**
-  ```clojure
-  ;; Calculate average of last 10 samples
-  (moving-average wd 10 :PpInMs)
-  ```"
+  Moving average of the most recent window-size samples, or nil if insufficient data"
   ([windowed-dataset window-size ppi-colname]
    (let [{:keys [current-size]} windowed-dataset]
      (when (>= current-size window-size)
@@ -842,18 +861,13 @@
   "Apply median filter to the most recent data in a windowed dataset.
   
   **Args:**
+  
   - `windowed-dataset` - a `WindowedDataset` 
   - `window-size` - number of recent samples to use for median calculation
   - `ppi-colname` - column name containing PPI intervals (default: :PpInMs)
   
   **Returns:**
-  Median value of the most recent window-size samples, or nil if insufficient data
-  
-  **Example:**
-  ```clojure
-  ;; Get median of last 5 samples
-  (median-filter wd 5 :PpInMs)
-  ```"
+  Median value of the most recent window-size samples, or nil if insufficient data"
   ([windowed-dataset window-size ppi-colname]
    (let [{:keys [current-size]} windowed-dataset]
      (when (>= current-size window-size)
@@ -871,17 +885,12 @@
   "Apply cascaded median filters (3-point then 5-point) for robust smoothing.
   
   **Args:**
+  
   - `windowed-dataset` - a `WindowedDataset`
   - `ppi-colname` - column name containing PPI intervals (default: :PpInMs)
   
   **Returns:**
-  Cascaded median filtered value, or nil if insufficient data (needs 5+ samples)
-  
-  **Example:**
-  ```clojure
-  ;; Apply 3-point then 5-point median filter
-  (cascaded-median-filter wd :PpInMs)
-  ```"
+  Cascaded median filtered value, or nil if insufficient data (needs 5+ samples)"
   ([windowed-dataset ppi-colname]
    (let [{:keys [current-size]} windowed-dataset]
      (when (>= current-size 5)
@@ -910,18 +919,13 @@
   "Calculate exponential moving average of recent data in windowed dataset.
   
   **Args:**
+  
   - `windowed-dataset` - a `WindowedDataset`
   - `alpha` - smoothing factor (0 < alpha <= 1, higher = more responsive)
   - `ppi-colname` - column name containing PPI intervals (default: :PpInMs)
   
   **Returns:**
-  EMA value, or nil if no data available
-  
-  **Example:**
-  ```clojure
-  ;; Calculate EMA with alpha=0.3 (moderate smoothing)
-  (exponential-moving-average wd 0.3 :PpInMs)
-  ```"
+  EMA value, or nil if no data available"
   ([windowed-dataset alpha ppi-colname]
    (let [{:keys [current-size]} windowed-dataset]
      (when (> current-size 0)
@@ -935,3 +939,28 @@
    (exponential-moving-average windowed-dataset alpha :PpInMs)))
 
 
+
+
+
+(defn add-column-by-windowed-fn [time-series {:keys [colname
+                                                     windowed-fn
+                                                     windowed-dataset-size]}]
+  (let [initial-windowed-dataset (-> time-series
+                                     (update-vals tcc/typeof)
+                                     (make-windowed-dataset
+                                      120))
+        rows (-> time-series
+                 (tc/order-by [:timestamp])
+                 (tc/rows :as-maps))]
+    (-> time-series
+        (tc/add-column colname (->> rows
+                                    (reductions
+                                     (fn [[windowed-dataset _] row]
+                                       (let [new-windowed-dataset
+                                             (insert-to-windowed-dataset!
+                                              windowed-dataset
+                                              row)]
+                                         [new-windowed-dataset
+                                          (windowed-fn new-windowed-dataset)]))
+                                     [initial-windowed-dataset nil])
+                                    (map second))))))
