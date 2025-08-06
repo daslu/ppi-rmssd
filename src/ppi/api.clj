@@ -42,11 +42,12 @@
   **Returns:**
   String with cleaned quotes"
   [csv-line]
-  (-> csv-line
-      (str/replace #"^\"" "")
-      (str/replace #"\"$" "")
-      (str/replace #"\"\"\"\"" "")
-      (str/replace #"\"\"" "\"")))
+  (when csv-line
+    (-> csv-line
+        (str/replace #"^\"" "")
+        (str/replace #"\"$" "")
+        (str/replace #"\"\"\"\"" "")
+        (str/replace #"\"\"" "\""))))
 
 (defn prepare-standard-csv!
   "Processes a gzipped CSV file to fix quote formatting issues.
@@ -152,18 +153,20 @@
   - `:accumulated-pp` - cumulative sum of pulse intervals
   - `:timestamp` - precise measurement timestamp (`:Client-Timestamp` + accumulated intervals)"
   [data]
-  (-> data
-      (tc/group-by [:Device-UUID :Client-Timestamp])
-      (tc/add-column :accumulated-pp
-                     #(reductions + (:PpInMs %)))
-      (tc/map-columns :timestamp
-                      [:Client-Timestamp :accumulated-pp]
-                      (fn [client-timestamp accumulated-pp]
-                        (datetime/plus-temporal-amount
-                         client-timestamp
-                         accumulated-pp
-                         :milliseconds)))
-      tc/ungroup))
+  (if (zero? (tc/row-count data))
+    data
+    (-> data
+        (tc/group-by [:Device-UUID :Client-Timestamp])
+        (tc/add-column :accumulated-pp
+                       #(reductions + (:PpInMs %)))
+        (tc/map-columns :timestamp
+                        [:Client-Timestamp :accumulated-pp]
+                        (fn [client-timestamp accumulated-pp]
+                          (datetime/plus-temporal-amount
+                           client-timestamp
+                           accumulated-pp
+                           :milliseconds)))
+        tc/ungroup)))
 
 (defn recognize-jumps
   "Identifies temporal discontinuities in time series data.
@@ -241,11 +244,13 @@
   **Returns:**
   Double - CV as percentage (0-100)"
   [values]
-  (let [mean-val (tcc/mean values)
-        std-val (tcc/standard-deviation values)]
-    (if (zero? mean-val)
-      0.0
-      (* 100.0 (/ std-val mean-val)))))
+  (if (empty? values)
+    0.0
+    (let [mean-val (tcc/mean values)
+          std-val (tcc/standard-deviation values)]
+      (if (or (zero? mean-val) (nil? mean-val) (nil? std-val))
+        0.0
+        (* 100.0 (/ std-val mean-val))))))
 
 (defn calculate-successive-changes
   "Calculate percentage changes between successive elements efficiently.
@@ -896,14 +901,16 @@
   **Returns:**
   EMA value, or nil if no data available"
   ([windowed-dataset alpha ppi-colname]
-   (let [{:keys [current-size]} windowed-dataset]
-     (when (> current-size 0)
-       (let [recent-data (windowed-dataset->dataset windowed-dataset)
-             values (tc/column recent-data ppi-colname)]
-         (reduce (fn [ema value]
-                   (+ (* alpha value) (* (- 1 alpha) ema)))
-                 (first values)
-                 (rest values))))))
+   (when (and (> alpha 0) (<= alpha 1))
+     (let [{:keys [current-size]} windowed-dataset]
+       (when (> current-size 0)
+         (let [recent-data (windowed-dataset->dataset windowed-dataset)
+               values (tc/column recent-data ppi-colname)]
+           (when (seq values)
+             (reduce (fn [ema value]
+                       (+ (* alpha value) (* (- 1 alpha) ema)))
+                     (first values)
+                     (rest values))))))))
   ([windowed-dataset alpha]
    (exponential-moving-average windowed-dataset alpha :PpInMs)))
 
