@@ -123,3 +123,76 @@
                             :Client-Timestamp
                             (java-time/after? cutoff-date))))))
 
+
+(defn add-timestamps
+  "Computes actual timestamps for pulse-to-pulse measurements.
+  
+  Takes a dataset with `:Device-UUID`, `:Client-Timestamp`, and `:PpInMs` columns
+  and calculates precise timestamps for each measurement. Groups by device
+  and client timestamp, accumulates pulse-to-pulse intervals, then adds
+  them to the client timestamp to get actual measurement times.
+  
+  **Args:**
+  - `data` - Tablecloth dataset containing columns:
+    - `:Device-UUID` - device identifier  
+    - `:Client-Timestamp` - base timestamp from client
+    - `:PpInMs` - pulse-to-pulse interval in milliseconds
+          
+  **Returns:**
+  Dataset with additional columns:
+  
+  - `:accumulated-pp` - cumulative sum of pulse intervals
+  - `:timestamp` - precise measurement timestamp (`:Client-Timestamp` + accumulated intervals)"
+  [data]
+  (-> data
+      (tc/group-by [:Device-UUID :Client-Timestamp])
+      (tc/add-column :accumulated-pp
+                     #(reductions + (:PpInMs %)))
+      (tc/map-columns :timestamp
+                      [:Client-Timestamp :accumulated-pp]
+                      (fn [client-timestamp accumulated-pp]
+                        (datetime/plus-temporal-amount
+                         client-timestamp
+                         accumulated-pp
+                         :milliseconds)))
+      tc/ungroup))
+
+(defn recognize-jumps
+  "Identifies temporal discontinuities in time series data.
+  
+  Analyzes timestamps to detect gaps that exceed a threshold, indicating
+  potential data collection interruptions or device resets. For each device,
+  calculates time differences between consecutive measurements and marks
+  jumps when gaps exceed the threshold.
+  
+  **Args:**
+  - `data` - Tablecloth dataset with `:Device-UUID` and `:timestamp` columns
+  - `params` - Map containing:
+    - `:jump-threshold` - minimum gap in milliseconds to consider a jump
+            
+  **Returns:**
+  Dataset with additional columns:
+  
+  - `:delta-timestamp` - time difference from previous measurement (ms)
+  - `:jump` - binary flag (`1` if jump detected, `0` otherwise)  
+  - `:jump-count` - cumulative count of jumps per device (creates segments)"
+  [data {:keys [jump-threshold]}]
+  (-> data
+      (tc/group-by [:Device-UUID])
+      (tc/order-by [:timestamp])
+      (tc/add-column :delta-timestamp
+                     (fn [ds]
+                       (let [timestamps (:timestamp ds)
+                             n (count timestamps)]
+                         (if (< n 2)
+                           [0]
+                           (cons 0
+                                 (map #(datetime/between %1 %2 :milliseconds)
+                                      (take (dec n) timestamps)
+                                      (drop 1 timestamps)))))))
+      (tc/add-column :jump
+                     #(map (fn [delta] (if (> delta jump-threshold) 1 0)) (:delta-timestamp %)))
+      (tc/add-column :jump-count
+                     #(reductions + (:jump %)))
+      tc/ungroup))
+
