@@ -4,7 +4,7 @@
 ;;
 
 ^:kindly/hide-code
-(ns ppi.docs.api-reference
+(ns ppi-docs.api-reference
   (:require [scicloj.kindly.v4.kind :as kind]
             [scicloj.kindly.v4.api :as kindly]
             [clojure.string :as str]
@@ -653,5 +653,43 @@
     [:p [:strong "Row count: "] (format "%d → %d" (tc/row-count clean-data) (tc/row-count distorted-data))]
     [:p [:strong "Distorted: "] [:code (pr-str (mapv math/round (tc/column distorted-data :PpInMs)))]]
     [:p [:em "Combines noise, outliers, missing/extra beats, and drift"]]]))
+
+;; ## Smoothing Functions
+
+(include-fnvar-as-section #'ppi/moving-average)
+
+;; ### Example
+
+(let [wd (ppi/make-windowed-dataset {:PpInMs :int32} 10)
+      data [{:PpInMs 800} {:PpInMs 850} {:PpInMs 820}]
+      populated-wd (reduce ppi/insert-to-windowed-dataset! wd data)]
+  (double (ppi/moving-average populated-wd 3)))
+
+(include-fnvar-as-section #'ppi/median-filter)
+
+;; ### Example
+
+(let [wd (ppi/make-windowed-dataset {:PpInMs :int32} 10)
+      data [{:PpInMs 800} {:PpInMs 1200} {:PpInMs 820}] ; middle value is outlier
+      populated-wd (reduce ppi/insert-to-windowed-dataset! wd data)]
+  (ppi/median-filter populated-wd 3))
+
+(include-fnvar-as-section #'ppi/cascaded-median-filter)
+
+;; ### Example
+
+(let [wd (ppi/make-windowed-dataset {:PpInMs :int32} 10)
+      data [{:PpInMs 800} {:PpInMs 1200} {:PpInMs 820} {:PpInMs 1100} {:PpInMs 810}]
+      populated-wd (reduce ppi/insert-to-windowed-dataset! wd data)]
+  (ppi/cascaded-median-filter populated-wd))
+
+(include-fnvar-as-section #'ppi/exponential-moving-average)
+
+;; ### Example
+
+(let [wd (ppi/make-windowed-dataset {:PpInMs :int32} 10)
+      data [{:PpInMs 800} {:PpInMs 850} {:PpInMs 820}]
+      populated-wd (reduce ppi/insert-to-windowed-dataset! wd data)]
+  (ppi/exponential-moving-average populated-wd 0.3))
 
 
