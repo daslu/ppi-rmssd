@@ -190,7 +190,7 @@ segmented-data
                                        :=y :PpInMs
                                        :=height 200}))
                (-> segment
-                   (tc/add-column :RMSSD (->> rows 
+                   (tc/add-column :RMSSD (->> rows
                                               (reductions
                                                (fn [[windowed-dataset _] row]
                                                  (let [new-windowed-dataset
@@ -206,9 +206,6 @@ segmented-data
                    (plotly/layer-line {:=x :timestamp
                                        :=y :RMSSD
                                        :=mark-color "brown"}))])))))))
-
-
-
 
 ;; ## Distorting clean segments
 
@@ -226,18 +223,66 @@ segmented-data
 
 (-> clean-segment-example
     (tc/order-by [:timestamp])
-    (plotly/base {:=height 200})
+    (plotly/base {:=height 200
+                  :=title "Clean"})
     (plotly/layer-line {:=x :timestamp
                         :=y :PpInMs}))
 
+;; Now let's apply some distortion functions to see how artifacts affect the clean signal:
 
+;; ### Adding Gaussian Noise
 
+(-> clean-segment-example
+    (ppi/add-gaussian-noise :PpInMs 25.0)
+    (tc/order-by [:timestamp])
+    (plotly/base {:=height 200
+                  :=title "Noisy (25ms σ)"})
+    (plotly/layer-line {:=x :timestamp
+                        :=y :PpInMs}))
 
+;; ### Adding Outliers
 
+(-> clean-segment-example
+    (ppi/add-outliers :PpInMs 0.15 4.0)
+    (tc/order-by [:timestamp])
+    (plotly/base {:=height 200
+                  :=title "With Outliers"})
+    (plotly/layer-line {:=x :timestamp
+                        :=y :PpInMs}))
 
+;; ### Comprehensive Distortion
 
+(-> clean-segment-example
+    (ppi/distort-segment {:noise-std 15.0
+                          :outlier-prob 0.08
+                          :outlier-magnitude 3.5
+                          :missing-prob 0.02
+                          :extra-prob 0.015})
+    (tc/order-by [:timestamp])
+    (plotly/base {:=height 200
+                  :=title "Fully Distorted"})
+    (plotly/layer-line {:=x :timestamp
+                        :=y :PpInMs}))
 
+;; ### Comparison: Clean vs Distorted
 
+;; Let's compare the clean and distorted signals side by side:
 
+(let [clean-plot (-> clean-segment-example
+                     (tc/add-columns {:signal-type "Clean"})
+                     (tc/order-by [:timestamp]))
+      distorted-plot (-> clean-segment-example
+                         (ppi/distort-segment {:noise-std 15.0
+                                               :outlier-prob 0.08
+                                               :outlier-magnitude 3.5
+                                               :missing-prob 0.02
+                                               :extra-prob 0.015})
+                         (tc/add-columns {:signal-type "Distorted"})
+                         (tc/order-by [:timestamp]))
+      combined-data (tc/concat clean-plot distorted-plot)]
 
-
+  (-> combined-data
+      (plotly/base {:=height 300})
+      (plotly/layer-line {:=x :timestamp
+                          :=y :PpInMs
+                          :=color :signal-type})))
