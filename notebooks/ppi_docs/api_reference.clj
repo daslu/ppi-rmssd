@@ -10,6 +10,7 @@
             [clojure.string :as str]
             [tablecloth.api :as tc]
             [java-time.api :as java-time]
+            [clojure.math :as math]
             [ppi.api :as ppi]
             [babashka.fs :as fs]))
 
@@ -524,3 +525,133 @@
       [:p [:strong "RMSSD result: "] (format "%.2f ms" rmssd-result)]
       [:p [:strong "Computation time: "] (format "%.3f ms" duration-ms)]
       [:p [:em "Uses dtype-next operations for optimal performance"]]])))
+
+(include-fnvar-as-section #'ppi/copy-windowed-dataset)
+
+;; ### Example
+
+(let [;; Create and populate a windowed dataset
+      base-time (java-time/local-date-time 2025 1 1 12 0 0)
+      original-data [{:timestamp base-time :PpInMs 800}
+                     {:timestamp (java-time/plus base-time (java-time/millis 1000)) :PpInMs 850}
+                     {:timestamp (java-time/plus base-time (java-time/millis 2000)) :PpInMs 820}]
+
+      wd (ppi/make-windowed-dataset {:timestamp :local-date-time :PpInMs :int32} 5)
+      populated-wd (reduce ppi/insert-to-windowed-dataset! wd original-data)
+
+      ;; Create a deep copy
+      copied-wd (ppi/copy-windowed-dataset populated-wd)]
+
+  (kind/hiccup
+   [:div
+    [:h4 "Deep copy windowed dataset example:"]
+    [:p [:strong "Original dataset state: "]
+     (format "size=%d, position=%d" (:current-size populated-wd) (:current-position populated-wd))]
+    [:p [:strong "Copied dataset state: "]
+     (format "size=%d, position=%d" (:current-size copied-wd) (:current-position copied-wd))]
+    [:p [:strong "Data identical: "]
+     (= (tc/rows (ppi/windowed-dataset->dataset populated-wd))
+        (tc/rows (ppi/windowed-dataset->dataset copied-wd)))]]))
+
+;; ## Data Distortion Functions
+
+;; The following functions simulate realistic artifacts commonly found in HRV data from wearable devices. These are essential for:
+;; 
+;; - **Algorithm Testing**: Evaluate smoothing and cleaning algorithms against known artifacts
+;; - **Synthetic Data Generation**: Create realistic test datasets when clean reference data is available
+;; - **Research Validation**: Compare algorithm performance across different artifact types and severities
+;; - **Quality Benchmarking**: Establish baseline performance metrics for HRV processing pipelines
+;;
+;; Each function can be used independently or combined via `distort-segment` for comprehensive artifact simulation.
+
+(include-fnvar-as-section #'ppi/add-gaussian-noise)
+
+;; ### Example
+
+(let [;; Create clean sample data
+      clean-data (tc/dataset {:PpInMs [800 810 805 815 820]})
+      noisy-data (ppi/add-gaussian-noise clean-data :PpInMs 5.0)]
+
+  (kind/hiccup
+   [:div
+    [:h4 "Gaussian noise example:"]
+    [:p [:strong "Original: "] [:code (pr-str (vec (tc/column clean-data :PpInMs)))]]
+    [:p [:strong "With 5ms noise: "] [:code (pr-str (mapv math/round (tc/column noisy-data :PpInMs)))]]]))
+
+(include-fnvar-as-section #'ppi/add-outliers)
+
+;; ### Example
+
+(let [;; Create clean sample data
+      clean-data (tc/dataset {:PpInMs [800 810 805 815 820]})
+      outlier-data (ppi/add-outliers clean-data :PpInMs 0.4 2.5)] ; High probability for demo
+
+  (kind/hiccup
+   [:div
+    [:h4 "Outlier example:"]
+    [:p [:strong "Original: "] [:code (pr-str (vec (tc/column clean-data :PpInMs)))]]
+    [:p [:strong "With outliers: "] [:code (pr-str (mapv math/round (tc/column outlier-data :PpInMs)))]]]))
+
+(include-fnvar-as-section #'ppi/add-missing-beats)
+
+;; ### Example
+
+(let [;; Create clean sample data
+      clean-data (tc/dataset {:PpInMs [800 810 805 815 820]})
+      missing-data (ppi/add-missing-beats clean-data :PpInMs 0.6)] ; High probability for demo
+
+  (kind/hiccup
+   [:div
+    [:h4 "Missing beats example:"]
+    [:p [:strong "Original: "] [:code (pr-str (vec (tc/column clean-data :PpInMs)))]]
+    [:p [:strong "With missing beats: "] [:code (pr-str (mapv int (tc/column missing-data :PpInMs)))]]
+    [:p [:em "Doubled intervals show where beats were \"missed\""]]]))
+
+(include-fnvar-as-section #'ppi/add-extra-beats)
+
+;; ### Example
+
+(let [;; Create clean sample data
+      clean-data (tc/dataset {:PpInMs [800 810 805 815] :id (range 4)})
+      extra-data (ppi/add-extra-beats clean-data :PpInMs 0.5)] ; High probability for demo
+
+  (kind/hiccup
+   [:div
+    [:h4 "Extra beats example:"]
+    [:p [:strong "Original (4 beats): "] [:code (pr-str (vec (tc/column clean-data :PpInMs)))]]
+    [:p [:strong "With extra beats ("] (tc/row-count extra-data) " beats): "
+     [:code (pr-str (mapv int (tc/column extra-data :PpInMs)))]]
+    [:p [:em "Halved intervals appear where extra beats were inserted"]]]))
+
+(include-fnvar-as-section #'ppi/add-trend-drift)
+
+;; ### Example
+
+(let [;; Create clean sample data
+      clean-data (tc/dataset {:PpInMs [800 800 800 800 800]})
+      drift-data (ppi/add-trend-drift clean-data :PpInMs 50.0 :increase)]
+
+  (kind/hiccup
+   [:div
+    [:h4 "Trend drift example:"]
+    [:p [:strong "Original: "] [:code (pr-str (vec (tc/column clean-data :PpInMs)))]]
+    [:p [:strong "With 50ms increasing drift: "] [:code (pr-str (mapv math/round (tc/column drift-data :PpInMs)))]]
+    [:p [:em "Gradual increase simulates heart rate slowing over time"]]]))
+
+(include-fnvar-as-section #'ppi/distort-segment)
+
+;; ### Example
+
+(let [;; Create clean sample data
+      clean-data (tc/dataset {:PpInMs [800 800 800 800 800]})
+      distorted-data (ppi/distort-segment clean-data {})] ; Default parameters
+
+  (kind/hiccup
+   [:div
+    [:h4 "Comprehensive distortion example:"]
+    [:p [:strong "Original: "] [:code (pr-str (vec (tc/column clean-data :PpInMs)))]]
+    [:p [:strong "Row count: "] (format "%d → %d" (tc/row-count clean-data) (tc/row-count distorted-data))]
+    [:p [:strong "Distorted: "] [:code (pr-str (mapv math/round (tc/column distorted-data :PpInMs)))]]
+    [:p [:em "Combines noise, outliers, missing/extra beats, and drift"]]]))
+
+
