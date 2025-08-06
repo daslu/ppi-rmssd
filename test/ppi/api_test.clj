@@ -1583,10 +1583,6 @@
             (t/is (>= (tc/row-count result) (* 0.9 large-size))) ; Allow for some variation
             (t/is (contains? (set (tc/column-names result)) :PpInMs))))))))
 
-
-
-
-
 (t/deftest moving-average-test
   (t/testing "Basic moving average calculation"
     (let [;; Create windowed dataset with known values
@@ -1594,50 +1590,50 @@
           test-values [800 810 820 830 840]
           test-data (map (fn [v] {:PpInMs v}) test-values)
           populated-wd (reduce sut/insert-to-windowed-dataset! wd test-data)]
-      
+
       ;; Test different window sizes
-      (t/is (= 830 (sut/moving-average populated-wd 3)))  ; avg of [820 830 840]
-      (t/is (= 825 (sut/moving-average populated-wd 4)))  ; avg of [810 820 830 840]  
-      (t/is (= 820 (sut/moving-average populated-wd 5)))  ; avg of [800 810 820 830 840]
-      
+      (t/is (= 830 (sut/moving-average populated-wd 3))) ; avg of [820 830 840]
+      (t/is (= 825 (sut/moving-average populated-wd 4))) ; avg of [810 820 830 840]  
+      (t/is (= 820 (sut/moving-average populated-wd 5))) ; avg of [800 810 820 830 840]
+
       ;; Test insufficient data
-      (t/is (nil? (sut/moving-average populated-wd 6)))   ; only 5 samples available
+      (t/is (nil? (sut/moving-average populated-wd 6))) ; only 5 samples available
       (t/is (nil? (sut/moving-average populated-wd 10))))) ; way more than available
-  
+
   (t/testing "Custom column name support"
     (let [wd (sut/make-windowed-dataset {:HeartInterval :int32} 5)
           test-data [{:HeartInterval 900} {:HeartInterval 950} {:HeartInterval 1000}]
           populated-wd (reduce sut/insert-to-windowed-dataset! wd test-data)]
-      
+
       (t/is (= 950 (sut/moving-average populated-wd 3 :HeartInterval)))))
-  
+
   (t/testing "Empty dataset"
     (let [empty-wd (sut/make-windowed-dataset {:PpInMs :int32} 5)]
       (t/is (nil? (sut/moving-average empty-wd 1)))
       (t/is (nil? (sut/moving-average empty-wd 3)))))
-  
+
   (t/testing "Single sample"
     (let [wd (sut/make-windowed-dataset {:PpInMs :int32} 5)
           single-wd (sut/insert-to-windowed-dataset! wd {:PpInMs 800})]
       (t/is (= 800 (sut/moving-average single-wd 1)))
       (t/is (nil? (sut/moving-average single-wd 2)))))
-  
+
   (t/testing "Circular buffer behavior"
     (let [;; Small buffer that will wrap around
           wd (sut/make-windowed-dataset {:PpInMs :int32} 3)
           ;; Insert more data than capacity
           test-data (map (fn [v] {:PpInMs v}) [100 200 300 400 500])
           final-wd (reduce sut/insert-to-windowed-dataset! wd test-data)]
-      
+
       ;; Should only have last 3 values: [300 400 500]
-      (t/is (= 400 (sut/moving-average final-wd 3)))  ; avg of [300 400 500]
+      (t/is (= 400 (sut/moving-average final-wd 3))) ; avg of [300 400 500]
       (t/is (= 450 (sut/moving-average final-wd 2))))) ; avg of [400 500]
-  
+
   (t/testing "Floating point precision"
     (let [wd (sut/make-windowed-dataset {:PpInMs :float64} 5)
           test-data [{:PpInMs 800.5} {:PpInMs 810.7} {:PpInMs 820.3}]
           populated-wd (reduce sut/insert-to-windowed-dataset! wd test-data)]
-      
+
       ;; Test precise calculation
       (t/is (< (Math/abs (- 810.5 (sut/moving-average populated-wd 3))) 0.01)))))
 
@@ -1647,65 +1643,65 @@
           ;; Test data with outlier: [800, 810, 1500, 820, 830]
           test-data (map (fn [v] {:PpInMs v}) [800 810 1500 820 830])
           populated-wd (reduce sut/insert-to-windowed-dataset! wd test-data)]
-      
+
       ;; Test different window sizes
-      (t/is (= 830 (sut/median-filter populated-wd 3)))  ; median of [1500 820 830] = 820
-      (t/is (= 830 (sut/median-filter populated-wd 4)))  ; median of [810 1500 820 830] = 815 (avg of 810,820)
-      (t/is (= 820 (sut/median-filter populated-wd 5)))  ; median of [800 810 1500 820 830] = 820
-      
+      (t/is (= 830 (sut/median-filter populated-wd 3))) ; median of [1500 820 830] = 820
+      (t/is (= 830 (sut/median-filter populated-wd 4))) ; median of [810 1500 820 830] = 815 (avg of 810,820)
+      (t/is (= 820 (sut/median-filter populated-wd 5))) ; median of [800 810 1500 820 830] = 820
+
       ;; Test insufficient data
       (t/is (nil? (sut/median-filter populated-wd 6)))))
-  
+
   (t/testing "Odd vs even window sizes"
     (let [wd (sut/make-windowed-dataset {:PpInMs :int32} 10)
           test-data (map (fn [v] {:PpInMs v}) [100 200 300 400 500])
           populated-wd (reduce sut/insert-to-windowed-dataset! wd test-data)]
-      
+
       ;; Odd window size - true median
-      (t/is (= 300 (sut/median-filter populated-wd 5)))  ; [100 200 300 400 500] -> 300
-      (t/is (= 400 (sut/median-filter populated-wd 3)))  ; [300 400 500] -> 400
-      
+      (t/is (= 300 (sut/median-filter populated-wd 5))) ; [100 200 300 400 500] -> 300
+      (t/is (= 400 (sut/median-filter populated-wd 3))) ; [300 400 500] -> 400
+
       ;; Even window size - lower middle element (by design)
-      (t/is (= 400 (sut/median-filter populated-wd 4)))  ; [200 300 400 500] -> 300 (index 1)
+      (t/is (= 400 (sut/median-filter populated-wd 4))) ; [200 300 400 500] -> 300 (index 1)
       (t/is (= 500 (sut/median-filter populated-wd 2))))) ; [400 500] -> 400 (index 0)
-  
+
   (t/testing "Custom column name"
     (let [wd (sut/make-windowed-dataset {:CustomCol :int32} 5)
           test-data [{:CustomCol 900} {:CustomCol 950} {:CustomCol 1000}]
           populated-wd (reduce sut/insert-to-windowed-dataset! wd test-data)]
-      
+
       (t/is (= 950 (sut/median-filter populated-wd 3 :CustomCol))))))
 
 (t/deftest cascaded-median-filter-test
   (t/testing "Basic cascaded median filter"
     (let [wd (sut/make-windowed-dataset {:PpInMs :int32} 10)
           ;; Data with outliers that 3-point median should handle
-          test-data (map (fn [v] {:PpInMs v}) [800 1500 810 2000 820])  ; outliers at pos 1,3
+          test-data (map (fn [v] {:PpInMs v}) [800 1500 810 2000 820]) ; outliers at pos 1,3
           populated-wd (reduce sut/insert-to-windowed-dataset! wd test-data)]
-      
+
       ;; Should apply 3-point median first, then 5-point median
       (t/is (number? (sut/cascaded-median-filter populated-wd)))
       (t/is (not (nil? (sut/cascaded-median-filter populated-wd))))))
-  
+
   (t/testing "Insufficient data"
     (let [wd (sut/make-windowed-dataset {:PpInMs :int32} 10)
-          test-data (map (fn [v] {:PpInMs v}) [800 810 820])  ; only 3 samples
+          test-data (map (fn [v] {:PpInMs v}) [800 810 820]) ; only 3 samples
           populated-wd (reduce sut/insert-to-windowed-dataset! wd test-data)]
-      
-      (t/is (nil? (sut/cascaded-median-filter populated-wd)))))  ; needs 5+ samples
-  
+
+      (t/is (nil? (sut/cascaded-median-filter populated-wd))))) ; needs 5+ samples
+
   (t/testing "Exact 5 samples"
     (let [wd (sut/make-windowed-dataset {:PpInMs :int32} 10)
           test-data (map (fn [v] {:PpInMs v}) [800 810 820 830 840])
           populated-wd (reduce sut/insert-to-windowed-dataset! wd test-data)]
-      
+
       (t/is (number? (sut/cascaded-median-filter populated-wd)))))
-  
+
   (t/testing "Custom column name"
     (let [wd (sut/make-windowed-dataset {:Interval :int32} 8)
           test-data (map (fn [v] {:Interval v}) [700 710 720 730 740])
           populated-wd (reduce sut/insert-to-windowed-dataset! wd test-data)]
-      
+
       (t/is (number? (sut/cascaded-median-filter populated-wd :Interval))))))
 
 (t/deftest exponential-moving-average-test
@@ -1714,7 +1710,7 @@
           ;; Simple increasing sequence
           test-data (map (fn [v] {:PpInMs (double v)}) [800 810 820])
           populated-wd (reduce sut/insert-to-windowed-dataset! wd test-data)]
-      
+
       ;; Test different alpha values
       (let [ema-low (sut/exponential-moving-average populated-wd 0.1)
             ema-high (sut/exponential-moving-average populated-wd 0.9)]
@@ -1722,33 +1718,194 @@
         (t/is (> ema-high ema-low))
         (t/is (number? ema-low))
         (t/is (number? ema-high)))))
-  
+
   (t/testing "Single sample"
     (let [wd (sut/make-windowed-dataset {:PpInMs :float64} 5)
           single-wd (sut/insert-to-windowed-dataset! wd {:PpInMs 800.0})]
-      
+
       ;; EMA of single value should be that value
       (t/is (= 800.0 (sut/exponential-moving-average single-wd 0.5)))))
-  
+
   (t/testing "Empty dataset"
     (let [empty-wd (sut/make-windowed-dataset {:PpInMs :float64} 5)]
       (t/is (nil? (sut/exponential-moving-average empty-wd 0.3)))))
-  
+
   (t/testing "Alpha edge cases"
     (let [wd (sut/make-windowed-dataset {:PpInMs :float64} 5)
           test-data [{:PpInMs 800.0} {:PpInMs 900.0}]
           populated-wd (reduce sut/insert-to-windowed-dataset! wd test-data)]
-      
+
       ;; Alpha = 1.0 should return the last value
       (t/is (= 900.0 (sut/exponential-moving-average populated-wd 1.0)))
-      
+
       ;; Alpha very small should be close to first value
       (let [ema-tiny (sut/exponential-moving-average populated-wd 0.01)]
-        (t/is (< (Math/abs (- 801.0 ema-tiny)) 1.0)))))  ; Should be close to 800 + small adjustment
-  
+        (t/is (< (Math/abs (- 801.0 ema-tiny)) 1.0))))) ; Should be close to 800 + small adjustment
+
   (t/testing "Custom column name"
     (let [wd (sut/make-windowed-dataset {:Rate :float64} 5)
           test-data [{:Rate 75.0} {:Rate 80.0}]
           populated-wd (reduce sut/insert-to-windowed-dataset! wd test-data)]
-      
+
       (t/is (number? (sut/exponential-moving-average populated-wd 0.5 :Rate))))))
+
+(t/deftest add-column-by-windowed-fn-test
+  (t/testing "Basic functionality with moving average"
+    (let [time-series (tc/dataset {:timestamp [(java-time/local-date-time 2025 1 1 12 0 0)
+                                               (java-time/local-date-time 2025 1 1 12 0 1)
+                                               (java-time/local-date-time 2025 1 1 12 0 2)
+                                               (java-time/local-date-time 2025 1 1 12 0 3)]
+                                   :PpInMs [800 850 820 880]})
+          result (sut/add-column-by-windowed-fn time-series
+                                                {:colname :MovingAvg3
+                                                 :windowed-fn #(sut/moving-average % 3)
+                                                 :windowed-dataset-size 10})]
+
+      (t/testing "preserves original columns"
+        (t/is (= #{:timestamp :PpInMs :MovingAvg3} (set (tc/column-names result)))))
+
+      (t/testing "maintains original row count"
+        (t/is (= (tc/row-count time-series) (tc/row-count result))))
+
+      (t/testing "adds progressive moving average values"
+        (let [avg-values (tc/column result :MovingAvg3)]
+          ;; First 2 values should be nil (insufficient data for 3-point window)
+          (t/is (nil? (nth avg-values 0)))
+          (t/is (nil? (nth avg-values 1)))
+          ;; Third value should be nil too since we need 3 samples
+          (t/is (nil? (nth avg-values 2)))
+          ;; Fourth value should be average of [800, 850, 820, 880]
+          (t/is (number? (nth avg-values 3)))))))
+
+  (t/testing "Progressive RMSSD calculation"
+    (let [time-series (let [base-time (java-time/local-date-time 2025 1 1 12 0 0)]
+                        (tc/dataset {:timestamp (map #(java-time/plus base-time (java-time/millis (* % 800)))
+                                                     (range 6))
+                                     :PpInMs [800 850 820 880 810 840]}))
+          result (sut/add-column-by-windowed-fn time-series
+                                                {:colname :RMSSD
+                                                 :windowed-fn #(sut/windowed-dataset->rmssd % :timestamp 5000)
+                                                 :windowed-dataset-size 120})]
+
+      (t/testing "calculates progressive RMSSD values"
+        (let [rmssd-values (tc/column result :RMSSD)]
+          ;; First value should be nil (need at least 2 samples for RMSSD)
+          (t/is (nil? (nth rmssd-values 0)))
+          ;; Later values should be numbers
+          (t/is (number? (nth rmssd-values 2)))
+          ;; Values should be reasonable RMSSD values (typically 10-100 ms)
+          (let [last-rmssd (last rmssd-values)]
+            (t/is (and (> last-rmssd 0) (< last-rmssd 200))))))))
+
+  (t/testing "Median filter combination"
+    (let [time-series (tc/dataset {:timestamp [(java-time/local-date-time 2025 1 1 12 0 0)
+                                               (java-time/local-date-time 2025 1 1 12 0 1)
+                                               (java-time/local-date-time 2025 1 1 12 0 2)
+                                               (java-time/local-date-time 2025 1 1 12 0 3)
+                                               (java-time/local-date-time 2025 1 1 12 0 4)]
+                                   :PpInMs [800 1200 820 880 810]}) ; 1200 is outlier
+          result (sut/add-column-by-windowed-fn time-series
+                                                {:colname :MedianFiltered
+                                                 :windowed-fn #(sut/median-filter % 3)
+                                                 :windowed-dataset-size 10})]
+
+      (t/testing "median filter handles outliers"
+        (let [filtered-values (tc/column result :MedianFiltered)]
+          ;; Should have filtered values for later samples
+          (t/is (number? (nth filtered-values 3)))
+          ;; The filtered value should not be the outlier (1200)
+          (t/is (not= 1200 (nth filtered-values 3)))))))
+
+  (t/testing "Exponential moving average combination"
+    (let [time-series (tc/dataset {:timestamp [(java-time/local-date-time 2025 1 1 12 0 0)
+                                               (java-time/local-date-time 2025 1 1 12 0 1)
+                                               (java-time/local-date-time 2025 1 1 12 0 2)]
+                                   :PpInMs [800 900 850]})
+          result (sut/add-column-by-windowed-fn time-series
+                                                {:colname :EMA
+                                                 :windowed-fn #(sut/exponential-moving-average % 0.5)
+                                                 :windowed-dataset-size 10})]
+
+      (t/testing "calculates progressive EMA values"
+        (let [ema-values (tc/column result :EMA)]
+          ;; First value should be nil (no prior data for first calculation)
+          (t/is (nil? (nth ema-values 0)))
+          ;; Second value should be the first input value (EMA starts from first value)
+          (t/is (= 800.0 (nth ema-values 1)))
+          ;; Third value should be smoothed
+          (t/is (number? (nth ema-values 2)))))))
+
+  (t/testing "Cascaded median filter combination"
+    (let [time-series (tc/dataset {:timestamp (map #(java-time/plus (java-time/local-date-time 2025 1 1 12 0 0)
+                                                                    (java-time/millis (* % 1000)))
+                                                   (range 8))
+                                   :PpInMs [800 1200 820 1100 810 840 825 815]}) ; Multiple outliers
+          result (sut/add-column-by-windowed-fn time-series
+                                                {:colname :CascadedFiltered
+                                                 :windowed-fn #(sut/cascaded-median-filter %)
+                                                 :windowed-dataset-size 10})]
+
+      (t/testing "cascaded filter requires 5 samples"
+        (let [filtered-values (tc/column result :CascadedFiltered)]
+          ;; First 4 values should be nil
+          (t/is (nil? (nth filtered-values 0)))
+          (t/is (nil? (nth filtered-values 1)))
+          (t/is (nil? (nth filtered-values 2)))
+          (t/is (nil? (nth filtered-values 3)))
+          ;; Fifth value and later should be numbers
+          (t/is (number? (nth filtered-values 5)))))))
+
+  (t/testing "Empty dataset handling"
+    (let [empty-series (tc/dataset {:timestamp [] :PpInMs []})
+          result (sut/add-column-by-windowed-fn empty-series
+                                                {:colname :MovingAvg
+                                                 :windowed-fn #(sut/moving-average % 3)
+                                                 :windowed-dataset-size 10})]
+
+      (t/testing "handles empty dataset gracefully"
+        (t/is (= 0 (tc/row-count result)))
+        (t/is (contains? (set (tc/column-names result)) :MovingAvg)))))
+
+  (t/testing "Single row dataset"
+    (let [single-row (tc/dataset {:timestamp [(java-time/local-date-time 2025 1 1 12 0 0)]
+                                  :PpInMs [800]})
+          result (sut/add-column-by-windowed-fn single-row
+                                                {:colname :MovingAvg
+                                                 :windowed-fn #(sut/moving-average % 3)
+                                                 :windowed-dataset-size 10})]
+
+      (t/testing "handles single row dataset"
+        (t/is (= 1 (tc/row-count result)))
+        (t/is (nil? (first (tc/column result :MovingAvg)))))))
+
+  (t/testing "Custom column names"
+    (let [time-series (tc/dataset {:measurement-time [(java-time/local-date-time 2025 1 1 12 0 0)
+                                                      (java-time/local-date-time 2025 1 1 12 0 1)]
+                                   :heartbeat-interval [800 850]})
+          result (sut/add-column-by-windowed-fn time-series
+                                                {:colname :SmoothedInterval
+                                                 :windowed-fn #(sut/moving-average % 2 :heartbeat-interval)
+                                                 :windowed-dataset-size 10})]
+
+      (t/testing "works with custom column names"
+        (t/is (contains? (set (tc/column-names result)) :SmoothedInterval))
+        ;; Second value is still nil, third value should be the moving average
+        (let [smoothed-vals (tc/column result :SmoothedInterval)]
+          (t/is (nil? (first smoothed-vals))) ; First is initial nil
+          (t/is (nil? (second smoothed-vals)))))))
+
+  (t/testing "Data ordering preservation"
+    (let [unordered-series (tc/dataset {:timestamp [(java-time/local-date-time 2025 1 1 12 0 2) ; Out of order
+                                                    (java-time/local-date-time 2025 1 1 12 0 0)
+                                                    (java-time/local-date-time 2025 1 1 12 0 1)]
+                                        :PpInMs [820 800 850]})
+          result (sut/add-column-by-windowed-fn unordered-series
+                                                {:colname :MovingAvg
+                                                 :windowed-fn #(sut/moving-average % 2)
+                                                 :windowed-dataset-size 10})]
+
+      (t/testing "automatically orders by timestamp"
+        ;; The function should internally order by timestamp for processing
+        (t/is (= (tc/row-count unordered-series) (tc/row-count result)))
+        ;; Should have processed data in chronological order
+        (t/is (number? (last (tc/column result :MovingAvg))))))))
