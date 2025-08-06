@@ -29,16 +29,24 @@
 ;; Following the data preparation chapter, let us create the dataset
 ;; to be used in this analysis:
 
-(def continuous-ppi
-  (ppi/prepare-continuous-ppi-data
+(def timestamped-ppi
+  (ppi/prepare-timestamped-ppi-data
    "data/query_result_2025-05-30T07_52_48.720548159Z.standard.csv.gz"))
 
-continuous-ppi
+timestamped-ppi
 
-(tc/info continuous-ppi)
+(tc/info timestamped-ppi)
 
 
 ;; ## Segmenting the data
+
+;; We will segment the data into relatively continuous segments.
+;; A break of 5 seconds is considered a discontinuity --
+;; a jump in time.
+
+;; (Later in our analysis, we will pick a few relatively clean segments
+;; and use them as ground truth to be distorted, to test our cleaning methods.)
+
 
 
 

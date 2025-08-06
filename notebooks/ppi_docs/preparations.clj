@@ -270,10 +270,10 @@
 ;; Here we prepare the main dataset to be used in this project.
 ;; 
 
-(def continuous-ppi-data
+(def timestamped-ppi-data
   (let [params {:jump-threshold 5000}]
     (-> data-with-timestamps
         (tc/select-columns [:Device-UUID :timestamp :PpErrorEstimate]))))
 
-continuous-ppi-data
+timestamped-ppi-data
 

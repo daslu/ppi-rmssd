@@ -197,7 +197,7 @@
       tc/ungroup))
 
 
-(defn prepare-continuous-ppi-data
+(defn prepare-timestamped-ppi-data
   "Prepares a continous PPI dataset from the raw data.
   This is the main dataset to be used in the analysis.
 
