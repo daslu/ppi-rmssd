@@ -163,8 +163,6 @@ segmented-data
 ;; that applies it sequentially
 ;; to an in-memory time-series and adds an appropriate column.
 
-
-
 (let [segments (tc/group-by segmented-data
                             [:Device-UUID :jump-count]
                             {:result-type :as-seq})
@@ -200,8 +198,6 @@ segmented-data
                  (plotly/layer-line {:=x :timestamp
                                      :=y :RMSSD
                                      :=mark-color "brown"}))]))))))
-
-
 
 ;; ## Distorting clean segments
 
@@ -283,33 +279,99 @@ segmented-data
                           :=y :PpInMs
                           :=color :signal-type})))
 
-
 ;; ## Measuring distortion
 
-(let [distorted-segment (ppi/distort-segment clean-segment-example
-                                             {:noise-std 15.0
-                                              :outlier-prob 0.08
-                                              :outlier-magnitude 3.5
-                                              :missing-prob 0.02
-                                              :extra-prob 0.015})
-      time-window 60000
-      windowed-dataset-size 240
-      add-rmssd (fn [time-series]
-                  (ppi/add-column-by-windowed-fn
-                   time-series
-                   {:colname :RMSSD
-                    :windowed-fn #(ppi/windowed-dataset->rmssd
-                                   % :timestamp time-window)
-                    :windowed-dataset-size windowed-dataset-size}))]
-  (->> [clean-segment-example
-        distorted-segment]
-       (map add-rmssd)
-       (apply #(tc/left-join %1 %2 [:timestamp]))
-       ((fn [joined-ds]
-          joined-ds
-          (let [real (:RMSSD joined-ds)
-                distorted (:right.RMSSD joined-ds)]
-            (-> distorted
-                (tcc/- real)
-                (tcc// real)
-                tcc/mean))))))
+;; ## Measuring distortion impact
+
+;; Now we can use our new `measure-distortion-impact` function to quantify
+;; how distortion affects RMSSD calculations in a clean, systematic way.
+
+(let [;; Define distortion parameters
+      distortion-params {:noise-std 15.0
+                         :outlier-prob 0.08
+                         :outlier-magnitude 3.5
+                         :missing-prob 0.02
+                         :extra-prob 0.015}
+
+      ;; Configure RMSSD calculation
+      rmssd-config {:colname :RMSSD
+                    :windowed-fn #(ppi/windowed-dataset->rmssd % :timestamp 60000)
+                    :windowed-dataset-size 240}
+
+      ;; Measure the distortion impact
+      impact-result (ppi/measure-distortion-impact clean-segment-example
+                                                   distortion-params
+                                                   rmssd-config)]
+
+  ;; Display the results using Clay's hiccup rendering  
+  (kind/hiccup
+   [:div
+    [:h3 "Distortion Impact Analysis"]
+    [:table {:style {:border-collapse "collapse" :width "100%"}}
+     [:tbody
+      [:tr
+       [:td {:style {:font-weight "bold" :padding "8px" :border "1px solid #ddd"}} "Mean relative error:"]
+       [:td {:style {:padding "8px" :border "1px solid #ddd"}}
+        (format "%.1f%%" (* 100 (:mean-relative-error impact-result)))]]
+      [:tr
+       [:td {:style {:font-weight "bold" :padding "8px" :border "1px solid #ddd"}} "Valid measurement pairs:"]
+       [:td {:style {:padding "8px" :border "1px solid #ddd"}}
+        (format "%d" (:n-valid-pairs impact-result))]]]]
+    [:h4 "Interpretation:"]
+    [:ul
+     [:li (format "The distortion causes RMSSD to be %.1f%% different on average"
+                  (* 100 (Math/abs (:mean-relative-error impact-result))))]
+     [:li (format "Analysis based on %d valid time points" (:n-valid-pairs impact-result))]]]))
+
+;; This approach is much cleaner and more systematic than the manual calculation.
+;; The function handles edge cases, provides comprehensive results, and can be
+;; easily used for comparing different distortion levels or cleaning algorithms.
+
+;; ## Comparing distortion levels
+
+;; Let's demonstrate how easy it is to compare different distortion scenarios:
+
+(let [rmssd-config {:colname :RMSSD
+                    :windowed-fn #(ppi/windowed-dataset->rmssd % :timestamp 60000)
+                    :windowed-dataset-size 240}
+
+      ;; Different distortion scenarios
+      scenarios {"Light distortion" {:noise-std 5.0 :outlier-prob 0.02}
+                 "Medium distortion" {:noise-std 10.0 :outlier-prob 0.05}
+                 "Heavy distortion" {:noise-std 20.0 :outlier-prob 0.10 :outlier-magnitude 4.0}
+                 "Comprehensive distortion" {:noise-std 15.0
+                                             :outlier-prob 0.08
+                                             :outlier-magnitude 3.5
+                                             :missing-prob 0.02
+                                             :extra-prob 0.015}}
+
+      ;; Measure impact for each scenario
+      results (into {}
+                    (map (fn [[name params]]
+                           [name (-> (ppi/measure-distortion-impact clean-segment-example
+                                                                    params
+                                                                    rmssd-config)
+                                     (select-keys [:mean-relative-error
+                                                   :n-valid-pairs]))])
+                         scenarios))]
+
+  (kind/hiccup
+   [:div
+    [:h3 "Distortion Impact Comparison"]
+    [:table {:style {:border-collapse "collapse" :width "100%" :margin-top "10px"}}
+     [:thead
+      [:tr {:style {:background-color "#f5f5f5"}}
+       [:th {:style {:padding "12px" :border "1px solid #ddd" :text-align "left"}} "Scenario"]
+       [:th {:style {:padding "12px" :border "1px solid #ddd" :text-align "right"}} "Mean Error"]
+       [:th {:style {:padding "12px" :border "1px solid #ddd" :text-align "right"}} "Valid Pairs"]]]
+     [:tbody
+      (for [[scenario result] (sort-by #(-> % second :mean-relative-error) results)]
+        [:tr
+         [:td {:style {:padding "10px" :border "1px solid #ddd"}} scenario]
+         [:td {:style {:padding "10px" :border "1px solid #ddd" :text-align "right"}}
+          (format "%.1f%%" (* 100 (:mean-relative-error result)))]
+         [:td {:style {:padding "10px" :border "1px solid #ddd" :text-align "right"}}
+          (format "%d" (:n-valid-pairs result))]])]]])
+
+  ;; Return results for further analysis
+  results)
