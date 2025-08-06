@@ -375,3 +375,134 @@ segmented-data
 
   ;; Return results for further analysis
   results)
+
+;; ## Systematic Smoothing Algorithm Comparison
+
+;; Let's compare different smoothing algorithms to see how well they can
+;; restore clean RMSSD values after various types of distortion.
+
+(let [;; Base RMSSD configuration
+      base-rmssd-config {:colname :RMSSD
+                         :windowed-fn #(ppi/windowed-dataset->rmssd % :timestamp 60000)
+                         :windowed-dataset-size 240}
+
+      ;; Smoothing algorithm configurations
+      smoothing-algorithms {"No smoothing" base-rmssd-config
+
+                            "Moving average (5pt)"
+                            {:colname :RMSSD-MA5
+                             :windowed-fn #(ppi/moving-average % 5)
+                             :windowed-dataset-size 240}
+
+                            "Moving average (10pt)"
+                            {:colname :RMSSD-MA10
+                             :windowed-fn #(ppi/moving-average % 10)
+                             :windowed-dataset-size 240}
+
+                            "Median filter (5pt)"
+                            {:colname :RMSSD-Med5
+                             :windowed-fn #(ppi/median-filter % 5)
+                             :windowed-dataset-size 240}
+
+                            "Median filter (7pt)"
+                            {:colname :RMSSD-Med7
+                             :windowed-fn #(ppi/median-filter % 7)
+                             :windowed-dataset-size 240}
+
+                            "Cascaded median"
+                            {:colname :RMSSD-CascMed
+                             :windowed-fn #(ppi/cascaded-median-filter %)
+                             :windowed-dataset-size 240}
+
+                            "Exponential MA (α=0.3)"
+                            {:colname :RMSSD-EMA3
+                             :windowed-fn #(ppi/exponential-moving-average % 0.3)
+                             :windowed-dataset-size 240}
+
+                            "Exponential MA (α=0.1)"
+                            {:colname :RMSSD-EMA1
+                             :windowed-fn #(ppi/exponential-moving-average % 0.1)
+                             :windowed-dataset-size 240}}
+
+      ;; Different distortion scenarios  
+      distortion-scenarios {"Light noise" {:noise-std 8.0}
+
+                            "Heavy noise" {:noise-std 20.0}
+
+                            "Outliers" {:noise-std 5.0 :outlier-prob 0.08 :outlier-magnitude 3.0}
+
+                            "Missing beats" {:noise-std 5.0 :missing-prob 0.03}
+
+                            "Extra beats" {:noise-std 5.0 :extra-prob 0.02}
+
+                            "Combined artifacts" {:noise-std 12.0
+                                                  :outlier-prob 0.05
+                                                  :outlier-magnitude 2.5
+                                                  :missing-prob 0.015
+                                                  :extra-prob 0.01}}
+
+      ;; Test each smoothing algorithm against each distortion scenario
+      results (for [[smoothing-name smoothing-config] smoothing-algorithms
+                    [distortion-name distortion-params] distortion-scenarios]
+                (try
+                  (let [impact (ppi/measure-distortion-impact clean-segment-example
+                                                              distortion-params
+                                                              smoothing-config)]
+                    {:smoothing smoothing-name
+                     :distortion distortion-name
+                     :error (* 100 (Math/abs (:mean-relative-error impact)))
+                     :valid-pairs (:n-valid-pairs impact)})
+                  (catch Exception e
+                    {:smoothing smoothing-name
+                     :distortion distortion-name
+                     :error "Failed"
+                     :valid-pairs 0})))]
+
+  ;; Display results in a comprehensive table
+  (kind/hiccup
+   [:div
+    [:h3 "Smoothing Algorithm Performance Comparison"]
+    [:p "Mean absolute relative error (%) across different distortion scenarios:"]
+
+    ;; Create comparison table
+    [:table {:style {:border-collapse "collapse" :width "100%" :margin "20px 0"}}
+
+     ;; Header row
+     [:thead
+      [:tr {:style {:background-color "#f8f9fa"}}
+       [:th {:style {:padding "12px" :border "1px solid #dee2e6" :text-align "left"}} "Algorithm"]
+       (for [distortion-name (map first distortion-scenarios)]
+         [:th {:style {:padding "12px" :border "1px solid #dee2e6" :text-align "center"}} distortion-name])]]
+
+     ;; Data rows
+     [:tbody
+      (for [smoothing-name (map first smoothing-algorithms)]
+        [:tr
+         [:td {:style {:padding "10px" :border "1px solid #dee2e6" :font-weight "bold"}} smoothing-name]
+         (for [distortion-name (map first distortion-scenarios)]
+           (let [result (first (filter #(and (= (:smoothing %) smoothing-name)
+                                             (= (:distortion %) distortion-name))
+                                       results))
+                 error (:error result)
+                 cell-style (cond
+                              (= error "Failed") {:padding "10px" :border "1px solid #dee2e6"
+                                                  :text-align "center" :background-color "#ffe6e6"}
+                              (< error 50) {:padding "10px" :border "1px solid #dee2e6"
+                                            :text-align "center" :background-color "#e8f5e8"}
+                              (< error 100) {:padding "10px" :border "1px solid #dee2e6"
+                                             :text-align "center" :background-color "#fff3cd"}
+                              :else {:padding "10px" :border "1px solid #dee2e6"
+                                     :text-align "center" :background-color "#f8d7da"})]
+             [:td {:style cell-style}
+              (if (number? error)
+                (format "%.0f%%" error)
+                error)]))])]]
+
+    [:div {:style {:margin-top "20px"}}
+     [:h4 "Color Legend:"]
+     [:ul {:style {:list-style-type "none" :padding-left "0"}}
+      [:li [:span {:style {:background-color "#e8f5e8" :padding "3px 8px" :margin-right "10px"}} "  "] "< 50% error (Good)"]
+      [:li [:span {:style {:background-color "#fff3cd" :padding "3px 8px" :margin-right "10px"}} "  "] "50-100% error (Moderate)"]
+      [:li [:span {:style {:background-color "#f8d7da" :padding "3px 8px" :margin-right "10px"}} "  "] "> 100% error (Poor)"]
+      [:li [:span {:style {:background-color "#ffe6e6" :padding "3px 8px" :margin-right "10px"}} "  "] "Failed"]]]]))
+
