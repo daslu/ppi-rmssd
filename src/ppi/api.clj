@@ -25,8 +25,6 @@
   (:import (java.util.zip GZIPInputStream ; For reading compressed CSV files
                           GZIPOutputStream))) ; For writing compressed CSV files
 
-
-
 (defn standardize-csv-line
   "Cleans up malformed CSV line by removing redundant quotes.
   
@@ -124,7 +122,6 @@
                             :Client-Timestamp
                             (java-time/after? cutoff-date))))))
 
-
 (defn add-timestamps
   "Computes actual timestamps for pulse-to-pulse measurements.
   
@@ -195,7 +192,6 @@
       (tc/drop-columns [:delta-timestamp :jump])
       tc/ungroup))
 
-
 (defn prepare-timestamped-ppi-data
   "Prepares a continous PPI dataset from the raw data.
   This is the main dataset to be used in the analysis.
@@ -207,9 +203,9 @@
   Dataset with columns: `:Device-UUID :timestamp :PpInMs :PpErrorEstimate`"
   [standard-csv-path]
   (let [date-time-format "yyyy.M.d, HH:mm"
-        raw-data      (tc/dataset standard-csv-path
-                                  {:parser-fn {"Created At" [:local-date-time date-time-format]
-                                               "Client Timestamp" [:local-date-time date-time-format]}})
+        raw-data (tc/dataset standard-csv-path
+                             {:parser-fn {"Created At" [:local-date-time date-time-format]
+                                          "Client Timestamp" [:local-date-time date-time-format]}})
         colname-prefix-to-remove (-> raw-data
                                      keys
                                      second
@@ -220,8 +216,7 @@
         add-timestamps
         (tc/select-columns [:Device-UUID :timestamp :PpInMs :PpErrorEstimate]))))
 
-
-(defn calclulcate-coefficient-of-variation
+(defn calculate-coefficient-of-variation
   "Calculate coefficient of variation using dtype-next vectorized operations.
   
   **Args:**
@@ -256,7 +251,6 @@
             ;; Calculate percentage changes: 100 * (diff / prev)
             pct-changes (tcc/* 100.0 (tcc// diffs prev-vals))]
         (tcc/abs pct-changes)))))
-
 
 (defn clean-segment?
   "Identifies high-quality 'clean' segments suitable for ground truth analysis.
@@ -293,7 +287,7 @@
       max-error-estimate)
 
    ;; Stable heart rate (using fast coefficient of variation)
-   (< (calclulcate-coefficient-of-variation (:PpInMs segment-data))
+   (< (calculate-coefficient-of-variation (:PpInMs segment-data))
       max-heart-rate-cv)
 
    ;; No sudden jumps (using fast successive changes)
@@ -303,18 +297,16 @@
           (tcc/reduce-max successive-changes))
         max-successive-change))))
 
-
 ;; A dataset that holds only the last `max-size` (or less)
 ;; rows in memory,
 ;; implemented as a round-robin index structure
 ;; defined over a tech.ml.dataset structure with mutable columns:
 (defrecord WindowedDataset
-    [dataset
-     column-types
-     max-size
-     current-size
-     current-position])
-
+           [dataset
+            column-types
+            max-size
+            current-size
+            current-position])
 
 (defn make-windowed-dataset
   "Create an empty `WindowedDataset` with a given `max-size`
@@ -336,6 +328,35 @@
       tc/dataset
       (->WindowedDataset column-types max-size 0 0)))
 
+(defn copy-windowed-dataset
+  "Create a deep copy of a windowed dataset.
+  
+  **Args:**
+  - `windowed-dataset` - a `WindowedDataset`
+  
+  **Returns:**
+  New `WindowedDataset` with copied data"
+  [{:as windowed-dataset :keys [dataset column-types max-size current-size current-position]}]
+  (let [new-dataset (-> column-types
+                        (update-vals
+                         (fn [datatype]
+                           (dtype/make-container :jvm-heap
+                                                 datatype
+                                                 max-size)))
+                        tc/dataset)]
+    ;; Copy existing data
+    (doseq [[colname _] column-types
+            i (range current-size)]
+      (let [src-idx (if (< current-size max-size)
+                      i
+                      (rem (+ current-position i) max-size))
+            dest-idx (if (< current-size max-size)
+                       i
+                       (rem (+ current-position i) max-size))]
+        (dtype/set-value! (new-dataset colname)
+                          dest-idx
+                          (dtype/get-value (dataset colname) src-idx))))
+    (->WindowedDataset new-dataset column-types max-size current-size current-position)))
 
 (defn insert-to-windowed-dataset!
   "Insert a new row to a `WindowedDataset`.
@@ -350,13 +371,21 @@
   [{:as windowed-dataset
     :keys [dataset column-types max-size current-position]}
    value]
-  (doseq [[colname _] column-types]
-    (dtype/set-value! (dataset colname)
-                      current-position
-                      (value colname)))
-  (-> windowed-dataset
-      (update :current-size #(min (inc %) max-size))
-      (update :current-position #(rem (inc %) max-size))))
+  ;; Handle edge case: size-0 window does nothing
+  (if (zero? max-size)
+    windowed-dataset
+    (let [;; Create a copy to avoid mutation issues with reductions
+          copied-wd (copy-windowed-dataset windowed-dataset)]
+      (doseq [[colname _] column-types]
+        (dtype/set-value! ((:dataset copied-wd) colname)
+                          current-position
+                          (value colname)))
+      ;; Create a new windowed dataset with the updated copy
+      (->WindowedDataset (:dataset copied-wd)
+                         column-types
+                         max-size
+                         (min (inc (:current-size windowed-dataset)) max-size)
+                         (rem (inc current-position) max-size)))))
 
 (defn windowed-dataset->dataset
   "Return a regular dataset as a view over the content of a windowed dataset.
@@ -365,8 +394,16 @@
   - `windowed-dataset` - a `WindowedDataset`"
   [{:as windowed-dataset
     :keys [dataset column-types max-size current-size current-position]}]
-  (ds/select-rows dataset
-                  (-> (range (- current-position
-                                current-size)
-                             current-position)
-                      (dfn/rem max-size))))
+  (if (zero? current-size)
+    ;; Return empty dataset with same columns
+    (ds/select-rows dataset [])
+    (let [indices (if (< current-size max-size)
+                    ;; Haven't wrapped yet: select from 0 to current-size-1
+                    (range current-size)
+                    ;; Have wrapped: select from current-position for max-size elements, wrapping around
+                    (map #(rem % max-size)
+                         (range current-position (+ current-position max-size))))]
+      (ds/select-rows dataset indices))))
+
+
+
