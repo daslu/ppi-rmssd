@@ -25,6 +25,7 @@ The main challenge we're solving: real-time HRV measurements are often noisy and
 ## Dependencies
 
 Built on the Clojure data science ecosystem:
+
 - **Noj** - data science toolkit:
   - **dtype-next** - array programming
   - **tech.ml.dataset** - efficient datasets
