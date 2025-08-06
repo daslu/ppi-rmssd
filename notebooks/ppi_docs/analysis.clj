@@ -96,6 +96,7 @@ segmented-data
                     [:p "clean? " clean]
                     (-> segment
                         (tc/order-by [:timestamp])
+                        (plotly/base {:=height 200})
                         (plotly/layer-line {:=x :timestamp
                                             :=y :PpInMs}))]))))
          segments)))
@@ -142,6 +143,7 @@ segmented-data
                       [:p "Jump #: " (-> segment :jump-count first)]
                       (-> segment
                           (tc/order-by [:timestamp])
+                          (plotly/base {:=height 200})
                           (plotly/layer-line {:=x :timestamp
                                               :=y :PpInMs}))]))))))
 
@@ -208,6 +210,9 @@ segmented-data
 
 
 
+;; ## Distorting clean segments
+
+;; Let us take one clean segment and plot it again.
 
 
 
