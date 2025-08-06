@@ -423,7 +423,75 @@
       (ds/select-rows dataset [])
       (ds/select-rows dataset indices))))
 
+(defn binary-search-timestamp-start
+  "Find the first index position where timestamp >= target-time using binary search.
+  
+  **Args:**
+  - `timestamp-col` - dataset column containing timestamps
+  - `indices` - vector of indices in chronological order
+  - `target-time` - target timestamp to search for
+  
+  **Returns:**
+  Index position in the indices vector (not the actual dataset index)"
+  [timestamp-col indices target-time]
+  (loop [left 0
+         right (count indices)]
+    (if (>= left right)
+      left ; Return the insertion point
+      (let [mid (quot (+ left right) 2)
+            mid-idx (nth indices mid)
+            mid-timestamp (nth timestamp-col mid-idx)]
+        (if (java-time/before? mid-timestamp target-time)
+          (recur (inc mid) right) ; Search right half
+          (recur left mid)))))) ; Search left half
 
+(defn windowed-dataset->time-window-dataset
+  "Return a regular dataset as a view over the content of a windowed dataset,
+  including only a recent time window. Uses binary search for optimal performance.
 
+  **Args:**
+  - `windowed-dataset` - a `WindowedDataset`
+  - `timestamp-colname` - the name of the column that contains timestamps
+  - `time-window` - window length in ms (from most recent timestamp backwards)
+
+  **Returns:**
+  Dataset containing only data within the specified time window
+  
+  **Performance:** O(log n) time complexity using binary search"
+  [{:as windowed-dataset
+    :keys [dataset]}
+   timestamp-colname
+   time-window]
+  (let [indices (windowed-dataset-indices windowed-dataset)]
+    (cond
+      ;; Handle empty dataset
+      (empty? indices)
+      (ds/select-rows dataset [])
+
+      ;; Handle invalid time window
+      (or (nil? time-window) (neg? time-window))
+      (ds/select-rows dataset [])
+
+      ;; Handle zero time window - return only the most recent point
+      (zero? time-window)
+      (ds/select-rows dataset [(last indices)])
+
+      ;; Normal case - use binary search for optimal performance
+      :else
+      (let [timestamp-col (dataset timestamp-colname)]
+        ;; Check if timestamp column exists
+        (when (nil? timestamp-col)
+          (throw (IllegalArgumentException. (str "Timestamp column '" timestamp-colname "' not found in dataset"))))
+
+        (let [;; Get the latest timestamp as reference point
+              latest-idx (last indices)
+              latest-time (nth timestamp-col latest-idx)
+              ;; Calculate start time for the window
+              start-time (java-time/minus latest-time (java-time/millis time-window))
+              ;; Use binary search to find the first timestamp >= start-time
+              start-pos (binary-search-timestamp-start timestamp-col indices start-time)
+              ;; Take all indices from start position to end (they're already in chronological order)
+              filtered-indices (subvec (vec indices) start-pos)]
+          (ds/select-rows dataset filtered-indices))))))
 
 

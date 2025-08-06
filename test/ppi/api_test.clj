@@ -946,3 +946,174 @@
     (t/testing "edge case: window size 0"
       (let [wd (sut/make-windowed-dataset {:x :int32} 0)]
         (t/is (= [] (sut/windowed-dataset-indices wd)))))))
+
+(t/deftest windowed-dataset->time-window-dataset-test
+  (t/testing "extracts data within specified time windows"
+
+    (t/testing "empty windowed dataset"
+      (let [wd (sut/make-windowed-dataset {:timestamp :local-date-time :value :int32} 5)
+            result (sut/windowed-dataset->time-window-dataset wd :timestamp 30000)]
+        (t/is (= 0 (tc/row-count result)))))
+
+    (t/testing "single data point"
+      (let [base-time (java-time/local-date-time 2025 8 6 10 0 0)
+            wd (sut/make-windowed-dataset {:timestamp :local-date-time :value :int32} 5)
+            wd-single (sut/insert-to-windowed-dataset! wd {:timestamp base-time :value 42})
+            result (sut/windowed-dataset->time-window-dataset wd-single :timestamp 30000)]
+
+        (t/is (= 1 (tc/row-count result)))
+        (t/is (= [42] (tc/column result :value)))))
+
+    (t/testing "time-based filtering with multiple data points"
+      (let [base-time (java-time/local-date-time 2025 8 6 10 0 0)
+            ;; Create 10 data points, 1 second apart
+            test-data (map (fn [i]
+                             {:timestamp (java-time/plus base-time (java-time/millis (* i 1000)))
+                              :value i})
+                           (range 10))
+            wd (sut/make-windowed-dataset {:timestamp :local-date-time :value :int32} 15)
+            final-wd (reduce sut/insert-to-windowed-dataset! wd test-data)]
+
+        (t/testing "3-second window should get last 4 points (6,7,8,9)"
+          (let [result (sut/windowed-dataset->time-window-dataset final-wd :timestamp 3000)]
+            (t/is (= 4 (tc/row-count result)))
+            (t/is (= [6 7 8 9] (tc/column result :value)))))
+
+        (t/testing "5-second window should get last 6 points (4,5,6,7,8,9)"
+          (let [result (sut/windowed-dataset->time-window-dataset final-wd :timestamp 5000)]
+            (t/is (= 6 (tc/row-count result)))
+            (t/is (= [4 5 6 7 8 9] (tc/column result :value)))))
+
+        (t/testing "window larger than data span should return all data"
+          (let [result (sut/windowed-dataset->time-window-dataset final-wd :timestamp 15000)]
+            (t/is (= 10 (tc/row-count result)))
+            (t/is (= [0 1 2 3 4 5 6 7 8 9] (tc/column result :value)))))
+
+        (t/testing "very small window should return only most recent point"
+          (let [result (sut/windowed-dataset->time-window-dataset final-wd :timestamp 500)]
+            (t/is (= 1 (tc/row-count result)))
+            (t/is (= [9] (tc/column result :value)))))))
+
+    (t/testing "HRV use case with PpInMs data"
+      (let [base-time (java-time/local-date-time 2025 8 6 10 0 0)
+            ;; Simulate HRV data - 30 heartbeats over ~25 seconds
+            hrv-data (map (fn [i]
+                            {:timestamp (java-time/plus base-time (java-time/millis (* i 833))) ; ~72 BPM
+                             :PpInMs (+ 800 (* 10 i)) ; Increasing intervals
+                             :value i})
+                          (range 30))
+            wd (sut/make-windowed-dataset {:timestamp :local-date-time :PpInMs :int32 :value :int32} 50)
+            hrv-wd (reduce sut/insert-to-windowed-dataset! wd hrv-data)]
+
+        (t/testing "30-second window captures all HRV data"
+          (let [result (sut/windowed-dataset->time-window-dataset hrv-wd :timestamp 30000)]
+            (t/is (= 30 (tc/row-count result)))
+            (t/is (= (range 30) (tc/column result :value)))
+            ;; Check that PpInMs data is preserved
+            (t/is (= 800 (first (tc/column result :PpInMs))))
+            (t/is (= 1090 (last (tc/column result :PpInMs))))))
+
+        (t/testing "10-second window captures recent portion"
+          (let [result (sut/windowed-dataset->time-window-dataset hrv-wd :timestamp 10000)]
+            (t/is (> (tc/row-count result) 5)) ; Should have multiple heartbeats
+            (t/is (< (tc/row-count result) 30)) ; But not all of them
+            ;; Should include the most recent data
+            (t/is (= 29 (last (tc/column result :value))))))))
+
+    (t/testing "edge cases and error handling"
+      (let [base-time (java-time/local-date-time 2025 8 6 10 0 0)
+            wd (sut/make-windowed-dataset {:timestamp :local-date-time :value :int32} 5)
+            wd-with-data (sut/insert-to-windowed-dataset! wd {:timestamp base-time :value 42})]
+
+        (t/testing "zero duration returns most recent point only"
+          (let [result (sut/windowed-dataset->time-window-dataset wd-with-data :timestamp 0)]
+            (t/is (= 1 (tc/row-count result)))
+            (t/is (= [42] (tc/column result :value)))))
+
+        (t/testing "negative duration returns empty dataset"
+          (let [result (sut/windowed-dataset->time-window-dataset wd-with-data :timestamp -1000)]
+            (t/is (= 0 (tc/row-count result)))))
+
+        (t/testing "nil duration returns empty dataset"
+          (let [result (sut/windowed-dataset->time-window-dataset wd-with-data :timestamp nil)]
+            (t/is (= 0 (tc/row-count result)))))
+
+        (t/testing "non-existent timestamp column throws exception"
+          (t/is (thrown? IllegalArgumentException
+                         (sut/windowed-dataset->time-window-dataset wd-with-data :nonexistent 1000))))))))
+
+(t/deftest binary-search-timestamp-start-test
+  (t/testing "binary search finds correct start positions"
+    (let [base-time (java-time/local-date-time 2025 8 6 10 0 0)
+          ;; Create timestamps: 10:00:00, 10:00:02, 10:00:04, 10:00:06, 10:00:08
+          timestamps (map #(java-time/plus base-time (java-time/millis (* % 2000))) (range 5))
+          ;; Simulate a dataset column
+          timestamp-col (into [] timestamps)
+          indices [0 1 2 3 4]]
+
+      (t/testing "finds exact match"
+        (let [target-time (nth timestamps 2) ; 10:00:04
+              pos (sut/binary-search-timestamp-start timestamp-col indices target-time)]
+          (t/is (= 2 pos))))
+
+      (t/testing "finds insertion point for value between timestamps"
+        (let [target-time (java-time/plus base-time (java-time/millis 3000)) ; 10:00:03 (between index 1 and 2)
+              pos (sut/binary-search-timestamp-start timestamp-col indices target-time)]
+          (t/is (= 2 pos)))) ; Should return position 2 (first >= target)
+
+      (t/testing "finds position 0 for time before all timestamps"
+        (let [target-time (java-time/minus base-time (java-time/millis 1000)) ; 09:59:59
+              pos (sut/binary-search-timestamp-start timestamp-col indices target-time)]
+          (t/is (= 0 pos))))
+
+      (t/testing "finds end position for time after all timestamps"
+        (let [target-time (java-time/plus base-time (java-time/millis 10000)) ; 10:00:10
+              pos (sut/binary-search-timestamp-start timestamp-col indices target-time)]
+          (t/is (= 5 pos)))) ; Should return past-end position
+
+      (t/testing "handles empty indices"
+        (let [pos (sut/binary-search-timestamp-start timestamp-col [] base-time)]
+          (t/is (= 0 pos))))
+
+      (t/testing "handles single element"
+        (let [pos (sut/binary-search-timestamp-start timestamp-col [0] base-time)]
+          (t/is (= 0 pos)))))))
+
+(t/deftest windowed-dataset-time-window-performance-test
+  (t/testing "binary search performance with larger datasets"
+    (let [base-time (java-time/local-date-time 2025 8 6 10 0 0)
+          ;; Create 1000 data points, 100ms apart (100 seconds of data)
+          large-data (map (fn [i]
+                            {:timestamp (java-time/plus base-time (java-time/millis (* i 100)))
+                             :value i
+                             :PpInMs (+ 800 (rem i 200))}) ; Varying heart rate
+                          (range 1000))
+          wd (sut/make-windowed-dataset {:timestamp :local-date-time
+                                         :value :int32
+                                         :PpInMs :int32} 1200)
+          large-wd (reduce sut/insert-to-windowed-dataset! wd large-data)]
+
+      (t/testing "handles large dataset efficiently"
+        (let [start-time (System/nanoTime)
+              result (sut/windowed-dataset->time-window-dataset large-wd :timestamp 30000) ; 30 second window
+              end-time (System/nanoTime)
+              duration-ms (/ (- end-time start-time) 1000000.0)]
+
+          (t/is (> (tc/row-count result) 250)) ; Should have ~300 points in 30 seconds
+          (t/is (< (tc/row-count result) 350))
+          (t/is (< duration-ms 10.0)) ; Should be very fast (< 10ms)
+
+          ;; Verify correctness - last value should be the most recent
+          (t/is (= 999 (last (tc/column result :value))))))
+
+      (t/testing "different window sizes work correctly on large dataset"
+        (doseq [[window-ms min-expected max-expected] [[10000 90 110] ; 10 seconds
+                                                       [60000 550 650]]] ; 60 seconds
+          (let [result (sut/windowed-dataset->time-window-dataset large-wd :timestamp window-ms)]
+            (t/is (>= (tc/row-count result) min-expected))
+            (t/is (<= (tc/row-count result) max-expected))
+            ;; Should always include the most recent point
+            (t/is (= 999 (last (tc/column result :value))))))))))
+
+
+
