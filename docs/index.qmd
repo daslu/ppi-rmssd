@@ -60,5 +60,5 @@ Built on the Clojure data science ecosystem:
 
 
 ```{=html}
-<div><pre><small><small>source: notebooks/index.clj</small></small></pre></div>
+<div><pre><small><small>source: <a href="https://github.com/daslu/ppi-rmssd/blob/main/notebooks/index.clj">notebooks/index.clj</a></small></small></pre></div>
 ```

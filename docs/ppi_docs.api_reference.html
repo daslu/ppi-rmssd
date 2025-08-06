@@ -1751,7 +1751,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb38-24"><a href="#cb38-24" aria-hidden="true" tabindex="-1"></a>      [<span class="at">:p</span> [<span class="at">:strong</span> <span class="st">"Computation time: "</span>] (<span class="kw">format</span> <span class="st">"%.3f ms"</span> duration-ms)]</span>
 <span id="cb38-25"><a href="#cb38-25" aria-hidden="true" tabindex="-1"></a>      [<span class="at">:p</span> [<span class="at">:em</span> <span class="st">"Uses dtype-next operations for optimal performance"</span>]]])))</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
-<div><h5 class="anchored">Performance with 1000 data points:</h5><p><strong>Dataset size: </strong>1000 heartbeats</p><p><strong>Time window: </strong>60 seconds</p><p><strong>RMSSD result: </strong>27.11 ms</p><p><strong>Computation time: </strong>0.214 ms</p><p><em>Uses dtype-next operations for optimal performance</em></p></div>
+<div><h5 class="anchored">Performance with 1000 data points:</h5><p><strong>Dataset size: </strong>1000 heartbeats</p><p><strong>Time window: </strong>60 seconds</p><p><strong>RMSSD result: </strong>27.11 ms</p><p><strong>Computation time: </strong>0.199 ms</p><p><em>Uses dtype-next operations for optimal performance</em></p></div>
 </section>
 </section>
 <section id="copy-windowed-dataset" class="level2">
@@ -1829,7 +1829,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb40-8"><a href="#cb40-8" aria-hidden="true" tabindex="-1"></a>    [<span class="at">:p</span> [<span class="at">:strong</span> <span class="st">"Original: "</span>] [<span class="at">:code</span> (<span class="kw">pr-str</span> (<span class="kw">vec</span> (tc/column clean-data <span class="at">:PpInMs</span>)))]]</span>
 <span id="cb40-9"><a href="#cb40-9" aria-hidden="true" tabindex="-1"></a>    [<span class="at">:p</span> [<span class="at">:strong</span> <span class="st">"With 5ms noise: "</span>] [<span class="at">:code</span> (<span class="kw">pr-str</span> (<span class="kw">mapv</span> math/round (tc/column noisy-data <span class="at">:PpInMs</span>)))]]]))</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
-<div><h4 class="anchored">Gaussian noise example:</h4><p><strong>Original: </strong><code>[800 810 805 815 820]</code></p><p><strong>With 5ms noise: </strong><code>[799 807 794 814 827]</code></p></div>
+<div><h4 class="anchored">Gaussian noise example:</h4><p><strong>Original: </strong><code>[800 810 805 815 820]</code></p><p><strong>With 5ms noise: </strong><code>[793 801 801 822 822]</code></p></div>
 </section>
 </section>
 <section id="add-outliers" class="level2">
@@ -1860,7 +1860,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb41-8"><a href="#cb41-8" aria-hidden="true" tabindex="-1"></a>    [<span class="at">:p</span> [<span class="at">:strong</span> <span class="st">"Original: "</span>] [<span class="at">:code</span> (<span class="kw">pr-str</span> (<span class="kw">vec</span> (tc/column clean-data <span class="at">:PpInMs</span>)))]]</span>
 <span id="cb41-9"><a href="#cb41-9" aria-hidden="true" tabindex="-1"></a>    [<span class="at">:p</span> [<span class="at">:strong</span> <span class="st">"With outliers: "</span>] [<span class="at">:code</span> (<span class="kw">pr-str</span> (<span class="kw">mapv</span> math/round (tc/column outlier-data <span class="at">:PpInMs</span>)))]]]))</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
-<div><h4 class="anchored">Outlier example:</h4><p><strong>Original: </strong><code>[800 810 805 815 820]</code></p><p><strong>With outliers: </strong><code>[800 810 805 815 820]</code></p></div>
+<div><h4 class="anchored">Outlier example:</h4><p><strong>Original: </strong><code>[800 810 805 815 820]</code></p><p><strong>With outliers: </strong><code>[790 810 805 815 820]</code></p></div>
 </section>
 </section>
 <section id="add-missing-beats" class="level2">
@@ -1891,7 +1891,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb42-9"><a href="#cb42-9" aria-hidden="true" tabindex="-1"></a>    [<span class="at">:p</span> [<span class="at">:strong</span> <span class="st">"With missing beats: "</span>] [<span class="at">:code</span> (<span class="kw">pr-str</span> (<span class="kw">mapv</span> <span class="kw">int</span> (tc/column missing-data <span class="at">:PpInMs</span>)))]]</span>
 <span id="cb42-10"><a href="#cb42-10" aria-hidden="true" tabindex="-1"></a>    [<span class="at">:p</span> [<span class="at">:em</span> <span class="st">"Doubled intervals show where beats were </span><span class="sc">\"</span><span class="st">missed</span><span class="sc">\"</span><span class="st">"</span>]]]))</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
-<div><h4 class="anchored">Missing beats example:</h4><p><strong>Original: </strong><code>[800 810 805 815 820]</code></p><p><strong>With missing beats: </strong><code>[1600 810 1610 815 1640]</code></p><p><em>Doubled intervals show where beats were "missed"</em></p></div>
+<div><h4 class="anchored">Missing beats example:</h4><p><strong>Original: </strong><code>[800 810 805 815 820]</code></p><p><strong>With missing beats: </strong><code>[800 1620 805 1630 820]</code></p><p><em>Doubled intervals show where beats were "missed"</em></p></div>
 </section>
 </section>
 <section id="add-extra-beats" class="level2">
@@ -1924,7 +1924,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb43-10"><a href="#cb43-10" aria-hidden="true" tabindex="-1"></a>     [<span class="at">:code</span> (<span class="kw">pr-str</span> (<span class="kw">mapv</span> <span class="kw">int</span> (tc/column extra-data <span class="at">:PpInMs</span>)))]]</span>
 <span id="cb43-11"><a href="#cb43-11" aria-hidden="true" tabindex="-1"></a>    [<span class="at">:p</span> [<span class="at">:em</span> <span class="st">"Halved intervals appear where extra beats were inserted"</span>]]]))</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
-<div><h4 class="anchored">Extra beats example:</h4><p><strong>Original (4 beats): </strong><code>[800 810 805 815]</code></p><p><strong>With extra beats (</strong>5 beats): <code>[800 405 405 805 815]</code></p><p><em>Halved intervals appear where extra beats were inserted</em></p></div>
+<div><h4 class="anchored">Extra beats example:</h4><p><strong>Original (4 beats): </strong><code>[800 810 805 815]</code></p><p><strong>With extra beats (</strong>7 beats): <code>[400 400 810 402 402 407 407]</code></p><p><em>Halved intervals appear where extra beats were inserted</em></p></div>
 </section>
 </section>
 <section id="add-trend-drift" class="level2">
@@ -1996,7 +1996,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb45-10"><a href="#cb45-10" aria-hidden="true" tabindex="-1"></a>    [<span class="at">:p</span> [<span class="at">:strong</span> <span class="st">"Distorted: "</span>] [<span class="at">:code</span> (<span class="kw">pr-str</span> (<span class="kw">mapv</span> math/round (tc/column distorted-data <span class="at">:PpInMs</span>)))]]</span>
 <span id="cb45-11"><a href="#cb45-11" aria-hidden="true" tabindex="-1"></a>    [<span class="at">:p</span> [<span class="at">:em</span> <span class="st">"Combines noise, outliers, missing/extra beats, and drift"</span>]]]))</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
-<div><h4 class="anchored">Comprehensive distortion example:</h4><p><strong>Original: </strong><code>[800 800 800 800 800]</code></p><p><strong>Row count: </strong>5 → 5</p><p><strong>Distorted: </strong><code>[796 808 815 1616 832]</code></p><p><em>Combines noise, outliers, missing/extra beats, and drift</em></p></div>
+<div><h4 class="anchored">Comprehensive distortion example:</h4><p><strong>Original: </strong><code>[800 800 800 800 800]</code></p><p><strong>Row count: </strong>5 → 5</p><p><strong>Distorted: </strong><code>[801 791 786 779 773]</code></p><p><em>Combines noise, outliers, missing/extra beats, and drift</em></p></div>
 </section>
 </section>
 <section id="smoothing-functions" class="level2">
@@ -2262,7 +2262,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </table>
 </div>
 <div style="background-color:grey;height:2px;width:100%;"></div>
-<div><pre><small><small>source: notebooks/ppi_docs/api_reference.clj</small></small></pre></div>
+<div><pre><small><small>source: <a href="https://github.com/daslu/ppi-rmssd/blob/main/notebooks/ppi_docs/api_reference.clj">notebooks/ppi_docs/api_reference.clj</a></small></small></pre></div>
 
 
 </section>
