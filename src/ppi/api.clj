@@ -203,7 +203,7 @@
   - `standard-csv-path` - path to the raw data
             
   **Returns:**
-  Dataset with columns: `:Device-UUID :timestamp :PpErrorEstimate`"
+  Dataset with columns: `:Device-UUID :timestamp :PpInMs :PpErrorEstimate`"
   [standard-csv-path]
   (let [date-time-format "yyyy.M.d, HH:mm"
         raw-data      (tc/dataset standard-csv-path
@@ -217,7 +217,87 @@
         (prepare-raw-data colname-prefix-to-remove)
         (filter-recent-data (java-time/local-date-time 2025 1 1))
         add-timestamps
-        (tc/select-columns [:Device-UUID :timestamp :PpErrorEstimate]))))
+        (tc/select-columns [:Device-UUID :timestamp :PpInMs :PpErrorEstimate]))))
 
 
+(defn calclulcate-coefficient-of-variation
+  "Calculate coefficient of variation using dtype-next vectorized operations.
+  
+  **Args:**
+  - `values` - Sequence or array of numeric values
+  
+  **Returns:**
+  Double - CV as percentage (0-100)"
+  [values]
+  (let [mean-val (tcc/mean values)
+        std-val (tcc/standard-deviation values)]
+    (if (zero? mean-val)
+      0.0
+      (* 100.0 (/ std-val mean-val)))))
 
+(defn calculate-successive-changes
+  "Calculate percentage changes between successive elements efficiently.
+  
+  **Args:**
+  - `values` - Sequence or array of numeric values
+  
+  **Returns:**
+  Array of successive percentage changes"
+  [values]
+  (let [n (count values)]
+    (if (< n 2)
+      (dtype/->reader [] :float64)
+      (let [shifted (tcc/shift values 1)
+            ;; Calculate differences (skip first element which is meaningless)
+            diffs (dtype/sub-buffer (tcc/- values shifted) 1 (dec n))
+            ;; Get previous values for percentage calculation
+            prev-vals (dtype/sub-buffer values 0 (dec n))
+            ;; Calculate percentage changes: 100 * (diff / prev)
+            pct-changes (tcc/* 100.0 (tcc// diffs prev-vals))]
+        (tcc/abs pct-changes)))))
+
+
+(defn clean-segment?
+  "Identifies high-quality 'clean' segments suitable for ground truth analysis.
+  
+  These segments serve as reference data for validating cleaning algorithms by
+  providing pristine examples before artificial distortion is applied.
+  
+  Uses dtype-next fast statistical functions for improved performance.
+  
+  **Args:**
+  - `segment-data` - The time series of one segment of one device.
+  - `params` - Map containing quality thresholds:
+    - `:max-error-estimate` - Maximum acceptable PP error 
+    - `:max-heart-rate-cv` - Maximum coefficient of variation for heart rate (%)
+    - `:max-successive-change` - Maximum allowed successive PP change (%)
+    - `:min-clean-duration` - Minimum duration for clean segments (ms)
+    - `:min-clean-samples` - Minimum samples required
+    
+  **Returns:**
+  Dataset containing only segments that meet all cleanliness criteria"
+  [segment-data
+   {:keys [max-error-estimate max-heart-rate-cv max-successive-change
+           min-clean-duration min-clean-samples]}]
+  (and
+   ;; Basic size and duration requirements
+   (>= (tc/row-count segment-data) min-clean-samples)
+   (>= (java-time/time-between (-> segment-data :timestamp first)
+                               (-> segment-data :timestamp last)
+                               :millis)
+       min-clean-duration)
+
+   ;; Low error estimate requirement (using dtype-next for speed)
+   (< (tcc/mean (:PpErrorEstimate segment-data))
+      max-error-estimate)
+
+   ;; Stable heart rate (using fast coefficient of variation)
+   (< (calclulcate-coefficient-of-variation (:PpInMs segment-data))
+      max-heart-rate-cv)
+
+   ;; No sudden jumps (using fast successive changes)
+   (let [successive-changes (calculate-successive-changes (:PpInMs segment-data))]
+     (< (if (zero? (count successive-changes))
+          0.0
+          (tcc/reduce-max successive-changes))
+        max-successive-change))))
