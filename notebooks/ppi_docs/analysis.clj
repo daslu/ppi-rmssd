@@ -49,9 +49,7 @@ segmented-data
 ;; Later in our analysis, we will pick a few relatively clean segments
 ;; and use them as ground truth to be distorted, to test our cleaning methods.
 
-
 ;; ## Finding clean segments
-
 
 ;; Let us explore our 'clean segment' criteria with the segments of one device:
 
@@ -79,3 +77,16 @@ segmented-data
                       (plotly/layer-line {:=x :timestamp
                                           :=y :PpInMs}))])))
          segments)))
+
+;; ### Understanding Clean Segments
+;;
+;; Clean segments are high-quality PPI data suitable for ground truth analysis.
+;; The `ppi/clean-segment?` function identifies segments meeting five criteria:
+;;
+;; 1. **Sufficient samples** (≥25 points) and **duration** (≥30 seconds)
+;; 2. **Low error** (≤15ms average measurement uncertainty)  
+;; 3. **Stable heart rate** (≤15% coefficient of variation)
+;; 4. **Smooth transitions** (≤30% maximum successive change)
+;;
+;; These segments represent normal sinus rhythm periods with minimal artifacts,
+;; providing reliable reference data for algorithm validation and HRV analysis.
