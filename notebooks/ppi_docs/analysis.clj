@@ -66,12 +66,18 @@ segmented-data
 
 ;; Note that many of the segments simply have too little data to be considered clean.
 
-(let [clean-params {:max-error-estimate 15
-                    :max-heart-rate-cv 15
-                    :max-successive-change 30
-                    :min-clean-duration 30000
-                    :min-clean-samples 25}
-      segments (-> segmented-data
+(def clean-params
+  {:max-error-estimate 15
+   :max-heart-rate-cv 15
+   :max-successive-change 30
+   :min-clean-duration 30000
+   :min-clean-samples 25})
+
+;; ### A few examples
+
+;; Let us focus on one device, and check which of its segments are considered clean:
+
+(let [segments (-> segmented-data
                    (tc/select-rows #(= (:Device-UUID %)
                                        #uuid "8d453046-24f2-921e-34be-7ed0d7a37d6f"))
                    (tc/group-by [:jump-count] {:result-type :as-seq}))]
@@ -94,17 +100,44 @@ segmented-data
 
 ;; ### Clean segment statistics
 
-(let [clean-params {:max-error-estimate 15
-                    :max-heart-rate-cv 15
-                    :max-successive-change 30
-                    :min-clean-duration 30000
-                    :min-clean-samples 25}]
-  (-> segmented-data
-      (tc/group-by [:Device-UUID :jump-count])
-      (tc/aggregate {:clean #(ppi/clean-segment? % clean-params)})
-      (tc/group-by [:Device-UUID])
-      (tc/aggregate {:n-segments tc/row-count
-                     :n-clean #(int (tcc/sum (:clean %)))})
-      (tc/map-columns :clean-percentage
-                      [:n-clean :n-segments]
-                      #(/ (* 100.0 %1) %2))))
+(-> segmented-data
+    (tc/group-by [:Device-UUID :jump-count])
+    (tc/aggregate {:clean #(ppi/clean-segment? % clean-params)})
+    (tc/group-by [:Device-UUID])
+    (tc/aggregate {:n-segments tc/row-count
+                   :n-clean #(int (tcc/sum (:clean %)))})
+    (tc/map-columns :clean-percentage
+                    [:n-clean :n-segments]
+                    #(/ (* 100.0 %1) %2)))
+
+;; While our definition of "clean" might be a bit relaxed, the purpose is to serve
+;; as ground truth for our experiments in distorting the date and the cleaning them back.
+
+;; Since we need a decent amount of samples, this choice of parameters seems like
+;; a reasonable compromise.
+
+;; ### How to clean segments look?
+
+;; Let us visualized a few more clean segments, so we can have a visual idea
+;; of the kind of data we are handling.
+
+(let [segments (tc/group-by segmented-data
+                            [:Device-UUID :jump-count]
+                            {:result-type :as-seq})]
+  (kind/hiccup
+   (into [:div.limited-height]
+         (->> segments
+              (filter #(ppi/clean-segment? % clean-params))
+              (sort-by (fn [segment] ; shuffle the segments a bit:
+                         (-> segment
+                             tc/rows
+                             first
+                             hash)))
+              (take 10)
+              (map (fn [segment]
+                     [:div {:style {:background-color "#ddffdd"}}
+                      [:p "Device: " (-> segment :Device-UUID first)]
+                      (-> segment
+                          (tc/order-by [:timestamp])
+                          (plotly/layer-line {:=x :timestamp
+                                              :=y :PpInMs}))]))))))
