@@ -37,7 +37,7 @@
 
 segmented-data
 
-(tc/info timestamped-ppi)
+(tc/info segmented-data)
 
 ;; Recall that `:jump-count` is used to recognize continuous segments.
 ;; A break of 5 seconds is considered a discontinuity --
@@ -141,3 +141,7 @@ segmented-data
                           (tc/order-by [:timestamp])
                           (plotly/layer-line {:=x :timestamp
                                               :=y :PpInMs}))]))))))
+
+;; ## Introducing cleaning algorithms
+
+
