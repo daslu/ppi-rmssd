@@ -1,4 +1,4 @@
-;; # PPI-RMSSD Data Analysis: API Reference
+;; # API Reference
 ;;
 ;; Complete reference documentation for all functions in the `ppi.api` namespace.
 ;;
