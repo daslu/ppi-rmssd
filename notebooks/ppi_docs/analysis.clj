@@ -669,10 +669,18 @@
 ;; This analysis provides a solid foundation for implementing RMSSD smoothing.
 ;; Recommended next steps include:
 ;;
+;; ### Analysis & Algorithm Development
 ;; 1. **More careful visual analysis** - Detailed examination of how different filters affect RMSSD time series patterns
 ;; 2. **Real-time testing** - Validate algorithms in live data streaming context
 ;; 3. **Advanced filtering methods** - Test Savitzky-Golay filters, Kalman filters, and other sophisticated approaches
-;; 4. **Database integration** - Implement storage and retrieval of processed RMSSD data
-;; 5. **More careful performance tests** - Systematic benchmarking of computational costs and memory usage
-;; 6. **Adaptive algorithms** - Develop methods that adjust smoothing based on detected artifact levels
+;; 4. **Adaptive algorithms** - Develop methods that adjust smoothing based on detected artifact levels
+;;
+;; ### Data Quality & Reliability
+;; 5. **Data quality notifications** - Implement system to notify when data is not good enough for RMSSD estimation (too noisy, too sparse, high error estimates)
+;; 6. **Error estimate integration** - Take `:PpErrorEstimate` values into account when computing RMSSD and deciding on smoothing parameters
+;; 7. **Real-time segmentation** - Implement real-time jump detection to segment the data stream when measurement discontinuities occur
+;;
+;; ### System Integration
+;; 8. **Database integration** - Implement storage and retrieval of processed RMSSD data
+;; 9. **Performance optimization** - Systematic benchmarking of computational costs and memory usage
 ;;
