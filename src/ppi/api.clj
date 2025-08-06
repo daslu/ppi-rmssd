@@ -215,7 +215,7 @@
                                      (subs 0 14))]
     (-> raw-data
         (prepare-raw-data colname-prefix-to-remove)
-        (filter-recent-data (java-time/local-date-time 2025 1 1))
+        (filter-recent-data (java-time/local-date-time 2024 1 1))
         add-timestamps
         (tc/select-columns [:Device-UUID :timestamp :PpInMs :PpErrorEstimate]))))
 

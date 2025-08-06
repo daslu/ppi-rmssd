@@ -104,9 +104,9 @@
 
 ;; ## Data Filtering
 ;;
-;; Focus on recent data (2025 onwards) for our analysis:
+;; Focus on recent data (2024 onwards) for our analysis:
 (def recent-data
-  (ppi/filter-recent-data prepared-data (java-time/local-date-time 2025 1 1)))
+  (ppi/filter-recent-data prepared-data (java-time/local-date-time 2024 1 1)))
 
 ;; ## Exploratory Data Analysis
 ;;
