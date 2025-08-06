@@ -196,3 +196,30 @@
                      #(reductions + (:jump %)))
       tc/ungroup))
 
+
+(defn prepare-continuous-ppi-data
+  "Prepares a continous PPI dataset from the raw data.
+  This is the main dataset to be used in the analysis.
+
+  **Args:**
+  - `standard-csv-path` - path to the raw data
+            
+  **Returns:**
+  A dataset with columns: `:Device-UUID :timestamp :PpErrorEstimate`"
+  [standard-csv-path]
+  (let [date-time-format "yyyy.M.d, HH:mm"
+        raw-data      (tc/dataset standard-csv-path
+                                  {:parser-fn {"Created At" [:local-date-time date-time-format]
+                                               "Client Timestamp" [:local-date-time date-time-format]}})
+        colname-prefix-to-remove (-> raw-data
+                                     keys
+                                     second
+                                     (subs 0 14))]
+    (-> raw-data
+        (prepare-raw-data colname-prefix-to-remove)
+        (filter-recent-data (java-time/local-date-time 2025 1 1))
+        add-timestamps
+        (tc/select-columns [:Device-UUID :timestamp :PpErrorEstimate]))))
+
+
+
