@@ -498,33 +498,33 @@
 (t/deftest calculate-coefficient-of-variation-test
   (t/testing "calculates CV for normal data"
     (let [values [100 110 90 105 95]
-          cv (sut/calclulcate-coefficient-of-variation values)]
+          cv (sut/calculate-coefficient-of-variation values)]
       (t/is (> cv 0))
       (t/is (< cv 20)))) ; Should be reasonable percentage
 
   (t/testing "handles uniform data"
     (let [values [100 100 100 100]
-          cv (sut/calclulcate-coefficient-of-variation values)]
+          cv (sut/calculate-coefficient-of-variation values)]
       (t/is (= 0.0 cv))))
 
   (t/testing "handles zero mean gracefully"
     (let [values [0 0 0 0]
-          cv (sut/calclulcate-coefficient-of-variation values)]
+          cv (sut/calculate-coefficient-of-variation values)]
       (t/is (= 0.0 cv))))
 
   (t/testing "handles single value"
     (let [values [42]
-          cv (sut/calclulcate-coefficient-of-variation values)]
+          cv (sut/calculate-coefficient-of-variation values)]
       (t/is (or (= 0.0 cv) (Double/isNaN cv)))))
 
   (t/testing "calculates CV for high variability data"
     (let [values [10 100 1000]
-          cv (sut/calclulcate-coefficient-of-variation values)]
+          cv (sut/calculate-coefficient-of-variation values)]
       (t/is (> cv 50)))) ; High variability should give high CV
 
   (t/testing "handles negative values correctly"
     (let [values [-10 -5 -15]
-          cv (sut/calclulcate-coefficient-of-variation values)]
+          cv (sut/calculate-coefficient-of-variation values)]
       (t/is (> (Math/abs cv) 0)))))
 
 (t/deftest calculate-successive-changes-test
@@ -670,3 +670,230 @@
 
       (t/is (false? (sut/clean-segment? empty-data params))))))
 
+(t/deftest make-windowed-dataset-test
+  (t/testing "creates windowed dataset with correct structure"
+    (let [wd (sut/make-windowed-dataset {:x :int16 :y :float32} 5)]
+
+      (t/testing "has correct record structure"
+        (t/is (instance? ppi.api.WindowedDataset wd))
+        (t/is (= {:x :int16 :y :float32} (:column-types wd)))
+        (t/is (= 5 (:max-size wd)))
+        (t/is (= 0 (:current-size wd)))
+        (t/is (= 0 (:current-position wd))))
+
+      (t/testing "creates dataset with correct columns"
+        (let [ds (:dataset wd)]
+          (t/is (= #{:x :y} (set (tc/column-names ds))))
+          (t/is (= 5 (tc/row-count ds)))))))
+
+  (t/testing "handles different column types"
+    (let [wd (sut/make-windowed-dataset {:name :string :value :float64 :count :int32} 3)]
+      (t/is (= #{:name :value :count} (set (tc/column-names (:dataset wd)))))
+      (t/is (= 3 (:max-size wd)))))
+
+  (t/testing "handles single column"
+    (let [wd (sut/make-windowed-dataset {:data :int16} 10)]
+      (t/is (= #{:data} (set (tc/column-names (:dataset wd)))))
+      (t/is (= 10 (:max-size wd))))))
+
+(t/deftest insert-to-windowed-dataset!-test
+  (t/testing "inserts single value correctly"
+    (let [wd (sut/make-windowed-dataset {:x :int16 :y :float32} 3)
+          updated-wd (sut/insert-to-windowed-dataset! wd {:x 1 :y 10.5})]
+
+      (t/is (= 1 (:current-size updated-wd)))
+      (t/is (= 1 (:current-position updated-wd)))
+
+      (let [result-ds (sut/windowed-dataset->dataset updated-wd)]
+        (t/is (= 1 (tc/row-count result-ds)))
+        (t/is (= [1] (tc/column result-ds :x)))
+        (t/is (= [10.5] (tc/column result-ds :y))))))
+
+  (t/testing "fills window up to max-size"
+    (let [wd (sut/make-windowed-dataset {:val :int32} 3)]
+
+      (let [wd1 (sut/insert-to-windowed-dataset! wd {:val 10})
+            wd2 (sut/insert-to-windowed-dataset! wd1 {:val 20})
+            wd3 (sut/insert-to-windowed-dataset! wd2 {:val 30})]
+
+        (t/is (= 3 (:current-size wd3)))
+        (t/is (= 0 (:current-position wd3))) ; Wrapped around
+
+        (let [result-ds (sut/windowed-dataset->dataset wd3)]
+          (t/is (= 3 (tc/row-count result-ds)))
+          (t/is (= [10 20 30] (tc/column result-ds :val)))))))
+
+  (t/testing "overwrites oldest values when exceeding max-size"
+    (let [wd (sut/make-windowed-dataset {:val :int32} 2)]
+
+      (let [wd1 (sut/insert-to-windowed-dataset! wd {:val 1})
+            wd2 (sut/insert-to-windowed-dataset! wd1 {:val 2})
+            wd3 (sut/insert-to-windowed-dataset! wd2 {:val 3})
+            wd4 (sut/insert-to-windowed-dataset! wd3 {:val 4})]
+
+        (t/is (= 2 (:current-size wd4))) ; Size stays at max
+        (t/is (= 0 (:current-position wd4))) ; Position wrapped around
+
+        (let [result-ds (sut/windowed-dataset->dataset wd4)]
+          (t/is (= 2 (tc/row-count result-ds)))
+          (t/is (= [3 4] (tc/column result-ds :val))))))) ; Oldest values (1,2) overwritten
+
+  (t/testing "handles different data types"
+    (let [wd (sut/make-windowed-dataset {:name :string :score :float64} 2)
+          wd1 (sut/insert-to-windowed-dataset! wd {:name "alice" :score 95.5})
+          wd2 (sut/insert-to-windowed-dataset! wd1 {:name "bob" :score 87.2})]
+
+      (let [result-ds (sut/windowed-dataset->dataset wd2)]
+        (t/is (= ["alice" "bob"] (tc/column result-ds :name)))
+        (t/is (= [95.5 87.2] (tc/column result-ds :score)))))))
+
+(t/deftest windowed-dataset-integration-test
+  (t/testing "reproduces exact usage example from documentation"
+    (let [results (->> (range 6)
+                       (reductions (fn [wd i]
+                                     (sut/insert-to-windowed-dataset! wd {:x i :y (* 1000 i)}))
+                                   (sut/make-windowed-dataset {:x :int16 :y :float32} 4))
+                       (map sut/windowed-dataset->dataset))]
+
+      (t/testing "produces correct sequence length"
+        (t/is (= 7 (count results))) ; reductions includes initial value)
+
+        (t/testing "first dataset is empty"
+          (let [first-ds (first results)]
+            (t/is (= 0 (tc/row-count first-ds)))))
+
+        (t/testing "second dataset has one row"
+          (let [second-ds (second results)]
+            (t/is (= 1 (tc/row-count second-ds)))
+            (t/is (= [0] (tc/column second-ds :x)))
+            (t/is (= [0.0] (tc/column second-ds :y)))))
+
+        (t/testing "window fills up correctly"
+          (let [fourth-ds (nth results 3)]
+            (t/is (= 3 (tc/row-count fourth-ds)))
+            (t/is (= [0 1 2] (tc/column fourth-ds :x)))
+            (t/is (= [0.0 1000.0 2000.0] (tc/column fourth-ds :y)))))
+
+        (t/testing "window reaches max size"
+          (let [fifth-ds (nth results 4)]
+            (t/is (= 4 (tc/row-count fifth-ds)))
+            (t/is (= [0 1 2 3] (tc/column fifth-ds :x)))
+            (t/is (= [0.0 1000.0 2000.0 3000.0] (tc/column fifth-ds :y)))))
+
+        (t/testing "window starts wrapping (oldest data replaced)"
+          (let [sixth-ds (nth results 5)]
+            (t/is (= 4 (tc/row-count sixth-ds)))
+            (t/is (= [1 2 3 4] (tc/column sixth-ds :x))) ; 0 is gone
+            (t/is (= [1000.0 2000.0 3000.0 4000.0] (tc/column sixth-ds :y)))))
+
+        (t/testing "final state shows continued wrapping"
+          (let [final-ds (last results)]
+            (t/is (= 4 (tc/row-count final-ds)))
+            (t/is (= [2 3 4 5] (tc/column final-ds :x))) ; 0,1 are gone
+            (t/is (= [2000.0 3000.0 4000.0 5000.0] (tc/column final-ds :y)))))))
+
+    (t/testing "variation: smaller window with different data"
+      (let [results (->> (range 3)
+                         (reductions (fn [wd i]
+                                       (sut/insert-to-windowed-dataset! wd {:a i :b (+ i 100)}))
+                                     (sut/make-windowed-dataset {:a :int32 :b :int32} 2))
+                         (map sut/windowed-dataset->dataset))]
+
+        (t/is (= 4 (count results)))
+
+      ; Final state should show window of size 2 with values [1, 2] and [101, 102]
+        (let [final-ds (last results)]
+          (t/is (= 2 (tc/row-count final-ds)))
+          (t/is (= [1 2] (tc/column final-ds :a)))
+          (t/is (= [101 102] (tc/column final-ds :b))))))
+
+    (t/testing "variation: string data with small window"
+      (let [results (->> ["a" "b" "c" "d" "e"]
+                         (reductions (fn [wd s]
+                                       (sut/insert-to-windowed-dataset! wd {:name s}))
+                                     (sut/make-windowed-dataset {:name :string} 3))
+                         (map sut/windowed-dataset->dataset))]
+
+        (t/is (= 6 (count results)))
+
+      ; Check progression
+        (t/is (= 1 (tc/row-count (second results))))
+        (t/is (= ["a"] (tc/column (second results) :name)))
+
+        (t/is (= 3 (tc/row-count (nth results 3))))
+        (t/is (= ["a" "b" "c"] (tc/column (nth results 3) :name)))
+
+      ; Final state should show ["c" "d" "e"]
+        (let [final-ds (last results)]
+          (t/is (= 3 (tc/row-count final-ds)))
+          (t/is (= ["c" "d" "e"] (tc/column final-ds :name))))))
+
+    (t/testing "edge case: window size of 1"
+      (let [results (->> [10 20 30]
+                         (reductions (fn [wd v]
+                                       (sut/insert-to-windowed-dataset! wd {:val v}))
+                                     (sut/make-windowed-dataset {:val :int32} 1))
+                         (map sut/windowed-dataset->dataset))]
+
+        (t/is (= 4 (count results)))
+
+      ; Each dataset should have at most 1 row with the latest value
+        (t/is (= [10] (tc/column (second results) :val)))
+        (t/is (= [20] (tc/column (nth results 2) :val)))
+        (t/is (= [30] (tc/column (last results) :val))))))
+
+  (t/deftest windowed-dataset-edge-cases-test
+    (t/testing "handles empty insertions gracefully"
+      (let [wd (sut/make-windowed-dataset {:x :int32} 3)
+            result-ds (sut/windowed-dataset->dataset wd)]
+        (t/is (= 0 (tc/row-count result-ds)))))
+
+    (t/testing "handles missing columns in row data"
+      (let [wd (sut/make-windowed-dataset {:x :int32 :y :float32} 2)]
+      ; This should handle missing :y gracefully (likely with nil/default value)
+        (t/is (some? (sut/insert-to-windowed-dataset! wd {:x 10})))))
+
+    (t/testing "position wrapping calculation"
+      (let [wd (sut/make-windowed-dataset {:val :int32} 3)]
+
+      ; Insert exactly max-size elements
+        (let [wd1 (sut/insert-to-windowed-dataset! wd {:val 1})
+              wd2 (sut/insert-to-windowed-dataset! wd1 {:val 2})
+              wd3 (sut/insert-to-windowed-dataset! wd2 {:val 3})]
+
+          (t/is (= 3 (:current-size wd3)))
+          (t/is (= 0 (:current-position wd3))) ; Should wrap to 0
+
+        ; Add one more to test continued wrapping
+          (let [wd4 (sut/insert-to-windowed-dataset! wd3 {:val 4})]
+            (t/is (= 3 (:current-size wd4))) ; Size stays at max
+            (t/is (= 1 (:current-position wd4))) ; Advances to 1
+
+            (let [result-ds (sut/windowed-dataset->dataset wd4)]
+              (t/is (= [2 3 4] (tc/column result-ds :val))))))))
+
+    (t/testing "very large window size"
+      (let [wd (sut/make-windowed-dataset {:data :int32} 1000)
+          ; Insert many values
+            final-wd (reduce (fn [w i]
+                               (sut/insert-to-windowed-dataset! w {:data i}))
+                             wd
+                             (range 100))]
+
+        (t/is (= 100 (:current-size final-wd)))
+        (t/is (= 100 (:current-position final-wd)))
+
+        (let [result-ds (sut/windowed-dataset->dataset final-wd)]
+          (t/is (= 100 (tc/row-count result-ds)))
+          (t/is (= (range 100) (tc/column result-ds :data))))))
+
+    (t/testing "window size 0 behavior"
+    ; This is an edge case that might not be practically useful
+    ; but should be handled gracefully
+      (let [wd (sut/make-windowed-dataset {:val :int32} 0)]
+        (t/is (= 0 (:max-size wd)))
+
+      ; Inserting into size-0 window should keep size at 0
+        (let [updated-wd (sut/insert-to-windowed-dataset! wd {:val 42})
+              result-ds (sut/windowed-dataset->dataset updated-wd)]
+          (t/is (= 0 (tc/row-count result-ds))))))))
