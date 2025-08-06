@@ -924,7 +924,8 @@
   Final smoothed value, or nil if insufficient data"
   ([windowed-dataset median-window ma-window ppi-colname]
    (let [{:keys [current-size]} windowed-dataset]
-     (when (>= current-size (+ median-window ma-window))
+     (when (and (> median-window 0) (> ma-window 0)
+                (>= current-size (+ median-window ma-window)))
        ;; Step 1: Apply median filter to remove outliers
        (let [recent-data (windowed-dataset->dataset windowed-dataset)
              recent-values (-> recent-data
@@ -947,7 +948,7 @@
              final-values (-> median-filtered
                               (subvec (- (count median-filtered) ma-window)))
 
-             moving-avg (/ (reduce + final-values) ma-window)]
+             moving-avg (double (/ (tcc/sum final-values) ma-window))]
 
          moving-avg))))
   ([windowed-dataset median-window ma-window]
