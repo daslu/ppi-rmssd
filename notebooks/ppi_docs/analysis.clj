@@ -541,6 +541,92 @@
                           :=y :RMSSD
                           :=color :signal-type})))
 
+;; ## Comparison over various segments
+
+(def various-segments
+  (->> (tc/group-by segmented-data [:Device-UUID :jump-count] {:result-type :as-seq})
+       (filter (fn [segment]
+                 (-> segment
+                     tc/row-count
+                     (>= 50))))
+       (sort-by (fn [segment] ; shuffle the segments a bit:
+                  (-> segment
+                      tc/rows
+                      first
+                      hash)))
+       (take 10)))
+
+;; ## RMSSD Smoothing Across Multiple Segments
+;;
+;; Let's see how smoothing works across different segments from our dataset:
+
+(let [;; Process each segment for comparison
+      segment-comparisons
+      (for [segment various-segments]
+        (let [;; Calculate raw RMSSD
+              raw-rmssd (-> segment
+                            (ppi/add-column-by-windowed-fn {:colname :RMSSD
+                                                            :windowed-fn #(ppi/windowed-dataset->rmssd % :timestamp 60000)
+                                                            :windowed-dataset-size 240})
+                            (tc/add-columns {:signal-type "Raw RMSSD"}))
+
+              ;; Calculate smoothed RMSSD (two-step process)
+              smoothed-rmssd (-> segment
+                                 ;; Step 1: Smooth the PPI data
+                                 (ppi/add-column-by-windowed-fn {:colname :PpInMs
+                                                                 :windowed-fn #(ppi/cascaded-smoothing-filter % 5 3)
+                                                                 :windowed-dataset-size 240})
+                                 ;; Step 2: Compute RMSSD from smoothed PPI
+                                 (ppi/add-column-by-windowed-fn {:colname :RMSSD
+                                                                 :windowed-fn #(ppi/windowed-dataset->rmssd % :timestamp 60000)
+                                                                 :windowed-dataset-size 240})
+                                 (tc/add-columns {:signal-type "Smoothed RMSSD"}))
+
+              ;; Combine both for this segment
+              rmssd-combined (-> (tc/concat raw-rmssd smoothed-rmssd)
+                                 (tc/select-rows #(not (nil? (:RMSSD %)))))
+
+              ;; Prepare PPI signal comparison
+              raw-ppi (-> segment
+                          (tc/add-columns {:signal-type "Raw PPI"}))
+
+              smoothed-ppi (-> segment
+                               (ppi/add-column-by-windowed-fn {:colname :PpInMs
+                                                               :windowed-fn #(ppi/cascaded-smoothing-filter % 5 3)
+                                                               :windowed-dataset-size 240})
+                               (tc/add-columns {:signal-type "Smoothed PPI"}))
+
+              ppi-combined (tc/concat raw-ppi smoothed-ppi)]
+
+          {:rmssd rmssd-combined :ppi ppi-combined}))]
+
+  ;; Display plots for each segment
+  (kind/hiccup
+   (into [:div]
+         (map-indexed
+          (fn [idx {:keys [rmssd ppi]}]
+            [:div {:style {:margin "20px 0"}}
+             [:h4 (str "Segment " (inc idx))]
+
+             ;; PPI Signal comparison
+             [:div {:style {:margin "10px 0"}}
+              [:h5 "PPI Signal (Raw vs Smoothed)"]
+              (-> ppi
+                  (plotly/base {:=height 200})
+                  (plotly/layer-line {:=x :timestamp
+                                      :=y :PpInMs
+                                      :=color :signal-type}))]
+
+             ;; RMSSD comparison
+             [:div {:style {:margin "10px 0"}}
+              [:h5 "RMSSD (Raw vs Smoothed)"]
+              (-> rmssd
+                  (plotly/base {:=height 200})
+                  (plotly/layer-line {:=x :timestamp
+                                      :=y :RMSSD
+                                      :=color :signal-type}))]])
+          segment-comparisons))))
+
 ;; The smoothed signal clearly shows the underlying trends while reducing
 ;; the moment-to-moment volatility that would confuse users.
 
