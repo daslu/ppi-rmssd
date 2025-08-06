@@ -500,7 +500,7 @@ segmented-data
                                      :text-align "center" :background-color "#f8d7da"})]
              [:td {:style cell-style}
               (if (number? error)
-                (format "%.0f%%" error)
+                (format "%.01f%%" error)
                 error)]))])]]
 
     [:div {:style {:margin-top "20px"}}
