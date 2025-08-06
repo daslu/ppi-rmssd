@@ -897,3 +897,52 @@
         (let [updated-wd (sut/insert-to-windowed-dataset! wd {:val 42})
               result-ds (sut/windowed-dataset->dataset updated-wd)]
           (t/is (= 0 (tc/row-count result-ds))))))))
+
+(t/deftest windowed-dataset-indices-test
+  (t/testing "returns correct indices for different windowed dataset states"
+
+    (t/testing "empty windowed dataset"
+      (let [wd (sut/make-windowed-dataset {:x :int32} 3)
+            indices (sut/windowed-dataset-indices wd)]
+        (t/is (= [] indices))))
+
+    (t/testing "partially filled window"
+      (let [wd (sut/make-windowed-dataset {:x :int32} 4)
+            wd1 (sut/insert-to-windowed-dataset! wd {:x 0})
+            wd2 (sut/insert-to-windowed-dataset! wd1 {:x 1})
+            wd3 (sut/insert-to-windowed-dataset! wd2 {:x 2})]
+
+        (t/is (= [0] (sut/windowed-dataset-indices wd1)))
+        (t/is (= [0 1] (sut/windowed-dataset-indices wd2)))
+        (t/is (= [0 1 2] (sut/windowed-dataset-indices wd3)))))
+
+    (t/testing "full window (no wrapping yet)"
+      (let [wd (sut/make-windowed-dataset {:x :int32} 3)]
+        (let [wd-full (reduce (fn [w i] (sut/insert-to-windowed-dataset! w {:x i}))
+                              wd
+                              (range 3))]
+          (t/is (= [0 1 2] (sut/windowed-dataset-indices wd-full))))))
+
+    (t/testing "wrapped window"
+      (let [wd (sut/make-windowed-dataset {:x :int32} 3)]
+        (let [wd-wrapped1 (reduce (fn [w i] (sut/insert-to-windowed-dataset! w {:x i}))
+                                  wd
+                                  (range 4))
+              wd-wrapped2 (reduce (fn [w i] (sut/insert-to-windowed-dataset! w {:x i}))
+                                  wd
+                                  (range 5))]
+
+          (t/is (= [1 2 0] (sut/windowed-dataset-indices wd-wrapped1)))
+          (t/is (= [2 0 1] (sut/windowed-dataset-indices wd-wrapped2))))))
+
+    (t/testing "edge case: window size 1"
+      (let [wd (sut/make-windowed-dataset {:x :int32} 1)
+            wd1 (sut/insert-to-windowed-dataset! wd {:x 10})
+            wd2 (sut/insert-to-windowed-dataset! wd1 {:x 20})]
+
+        (t/is (= [0] (sut/windowed-dataset-indices wd1)))
+        (t/is (= [0] (sut/windowed-dataset-indices wd2)))))
+
+    (t/testing "edge case: window size 0"
+      (let [wd (sut/make-windowed-dataset {:x :int32} 0)]
+        (t/is (= [] (sut/windowed-dataset-indices wd)))))))

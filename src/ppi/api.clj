@@ -387,23 +387,43 @@
                          (min (inc (:current-size windowed-dataset)) max-size)
                          (rem (inc current-position) max-size)))))
 
+(defn windowed-dataset-indices
+  "Extract the row indices for retrieving data from a windowed dataset in insertion order.
+  
+  This utility function encapsulates the logic for determining which rows to select
+  from the underlying dataset to present data in the correct chronological order.
+  
+  **Args:**
+  - `windowed-dataset` - a `WindowedDataset`
+  
+  **Returns:**
+  Vector of integer indices in the correct order for data retrieval"
+  [{:keys [max-size current-size current-position]}]
+  (cond
+    ;; Empty dataset
+    (zero? current-size) []
+
+    ;; Haven't wrapped around yet: select from 0 to current-size-1
+    (< current-size max-size) (vec (range current-size))
+
+    ;; Have wrapped around: select from current-position for max-size elements, wrapping
+    :else (vec (map #(rem % max-size)
+                    (range current-position (+ current-position max-size))))))
+
 (defn windowed-dataset->dataset
   "Return a regular dataset as a view over the content of a windowed dataset.
 
   **Args:**
   - `windowed-dataset` - a `WindowedDataset`"
   [{:as windowed-dataset
-    :keys [dataset column-types max-size current-size current-position]}]
-  (if (zero? current-size)
-    ;; Return empty dataset with same columns
-    (ds/select-rows dataset [])
-    (let [indices (if (< current-size max-size)
-                    ;; Haven't wrapped yet: select from 0 to current-size-1
-                    (range current-size)
-                    ;; Have wrapped: select from current-position for max-size elements, wrapping around
-                    (map #(rem % max-size)
-                         (range current-position (+ current-position max-size))))]
+    :keys [dataset]}]
+  (let [indices (windowed-dataset-indices windowed-dataset)]
+    (if (empty? indices)
+      ;; Return empty dataset with same columns
+      (ds/select-rows dataset [])
       (ds/select-rows dataset indices))))
+
+
 
 
 
