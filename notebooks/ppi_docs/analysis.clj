@@ -33,7 +33,7 @@
   (let [params {:jump-threshold 5000}]
     (-> "data/query_result_2025-05-30T07_52_48.720548159Z.standard.csv.gz"
         ppi/prepare-timestamped-ppi-data
-        (ppi/recognize-jumps))))
+        (ppi/recognize-jumps params))))
 
 segmented-data
 
@@ -50,4 +50,32 @@ segmented-data
 ;; and use them as ground truth to be distorted, to test our cleaning methods.
 
 
+;; ## Finding clean segments
 
+
+;; Let us explore our 'clean segment' criteria with the segments of one device:
+
+(let [clean-params {:max-error-estimate 15
+                    :max-heart-rate-cv 15
+                    :max-successive-change 30
+                    :min-clean-duration 30000
+                    :min-clean-samples 25}
+      segments (-> segmented-data
+                   (tc/select-rows #(= (:Device-UUID %)
+                                       #uuid "8d453046-24f2-921e-34be-7ed0d7a37d6f"))
+                   (tc/group-by [:jump-count] {:result-type :as-seq}))]
+  (kind/hiccup
+   (into [:div.limited-height]
+         (comp
+          (filter (fn [segment]
+                    (-> segment
+                        tc/row-count
+                        (> 2))))
+          (map (fn [segment]
+                 [:div
+                  (kind/code (pr-str {:clean (ppi/clean-segment? segment clean-params)}))
+                  (-> segment
+                      (tc/order-by [:timestamp])
+                      (plotly/layer-line {:=x :timestamp
+                                          :=y :PpInMs}))])))
+         segments)))
