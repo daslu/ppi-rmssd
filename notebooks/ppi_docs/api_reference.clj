@@ -27,11 +27,6 @@
       kind/md
       kindly/hide-code))
 
-;; ---
-;; # Data Preparation Functions
-;;
-;; Functions for processing raw CSV data and preparing it for analysis.
-
 (include-fnvar-as-section #'ppi/standardize-csv-line)
 
 ;; ### Examples
@@ -71,10 +66,12 @@
                                    "Other Column" ["data1" "data2"]})]
 
   ;; Show the transformation
-  [(kind/md "**Before:**")
-   sample-raw-data
-   (kind/md "**After:**")
-   (ppi/prepare-raw-data sample-raw-data "Query Results - ")])
+  (kind/hiccup
+   [:div
+    [:h3 "**Before:**"]
+    sample-raw-data
+    [:h3 "**After:**"]
+    (ppi/prepare-raw-data sample-raw-data "Query Results - ")]))
 
 (include-fnvar-as-section #'ppi/filter-recent-data)
 
@@ -86,15 +83,12 @@
                                :value [1 2 3]})
       cutoff-date (java-time/local-date-time 2025 1 1)]
 
-  [(kind/md "**Original data:**")
-   sample-data
-   (kind/md "**After filtering (keeping only records after 2025-01-01):**")
-   (ppi/filter-recent-data sample-data cutoff-date)])
-
-;; ---
-;; # Time Series Processing Functions
-;;
-;; Functions for calculating precise timestamps and detecting temporal discontinuities.
+  (kind/hiccup
+   [:div
+    [:h3 "**Original data:**"]
+    sample-data
+    [:h3 "**After filtering (keeping only records after 2025-01-01):**"]
+    (ppi/filter-recent-data sample-data cutoff-date)]))
 
 (include-fnvar-as-section #'ppi/add-timestamps)
 
@@ -106,10 +100,12 @@
                                                   (java-time/local-date-time 2025 1 1 12 0)]
                                :PpInMs [800 820]})]
 
-  [(kind/md "**Before (client timestamps only):**")
-   sample-data
-   (kind/md "**After (with precise measurement timestamps):**")
-   (ppi/add-timestamps sample-data)])
+  (kind/hiccup
+   [:div
+    [:h3 "**Before (client timestamps only):**"]
+    sample-data
+    [:h3 "**After (with precise measurement timestamps):**"]
+    (ppi/add-timestamps sample-data)]))
 
 (include-fnvar-as-section #'ppi/recognize-jumps)
 
@@ -123,7 +119,9 @@
                                            (java-time/local-date-time 2025 1 1 12 0 8)]}) ; 7 second gap
       params {:jump-threshold 5000}] ; 5 second threshold
 
-  [(kind/md "**Original data:**")
-   sample-data
-   (kind/md "**After jump detection:**")
-   (ppi/recognize-jumps sample-data params)])
+  (kind/hiccup
+   [:div
+    [:h3 "**Original data**"]
+    sample-data
+    [:h3 "**After jump detection**"]
+    (ppi/recognize-jumps sample-data params)]))
