@@ -270,10 +270,11 @@
 ;; Here we prepare the main dataset to be used in this project.
 ;; 
 
-(def timestamped-ppi-data
+(def segmented-data
   (let [params {:jump-threshold 5000}]
     (-> data-with-timestamps
-        (tc/select-columns [:Device-UUID :timestamp :PpErrorEstimate]))))
+        (tc/select-columns [:Device-UUID :timestamp :PpErrorEstimate])
+        (ppi/recognize-jumps params))))
 
-timestamped-ppi-data
+segmented-data
 
