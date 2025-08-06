@@ -212,11 +212,23 @@ segmented-data
 
 ;; ## Distorting clean segments
 
-;; Let us take one clean segment and plot it again.
+;; To evaluate our cleaning algorithms, we will take relatively
+;; clean segments as ground truth, and distort them.
 
+;; Let us take one relatively clean segment and plot it again.
 
+(def clean-segment-example
+  (-> segmented-data
+      (tc/select-rows #(= (:Device-UUID %)
+                          #uuid "8d453046-24f2-921e-34be-7ed0d7a37d6f"))
+      (tc/group-by [:jump-count] {:result-type :as-seq})
+      second))
 
-
+(-> clean-segment-example
+    (tc/order-by [:timestamp])
+    (plotly/base {:=height 200})
+    (plotly/layer-line {:=x :timestamp
+                        :=y :PpInMs}))
 
 
 
