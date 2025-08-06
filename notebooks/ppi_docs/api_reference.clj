@@ -68,9 +68,9 @@
   ;; Show the transformation
   (kind/hiccup
    [:div
-    [:h3 "**Before:**"]
+    [:h4 "Before:"]
     sample-raw-data
-    [:h3 "**After:**"]
+    [:h4 "After:"]
     (ppi/prepare-raw-data sample-raw-data "Query Results - ")]))
 
 (include-fnvar-as-section #'ppi/filter-recent-data)
@@ -85,9 +85,9 @@
 
   (kind/hiccup
    [:div
-    [:h3 "**Original data:**"]
+    [:h4 "Original data:"]
     sample-data
-    [:h3 "**After filtering (keeping only records after 2025-01-01):**"]
+    [:h4 "After filtering (keeping only records after 2025-01-01):"]
     (ppi/filter-recent-data sample-data cutoff-date)]))
 
 (include-fnvar-as-section #'ppi/add-timestamps)
@@ -102,9 +102,9 @@
 
   (kind/hiccup
    [:div
-    [:h3 "**Before (client timestamps only):**"]
+    [:h4 "Before (client timestamps only):"]
     sample-data
-    [:h3 "**After (with precise measurement timestamps):**"]
+    [:h4 "After (with precise measurement timestamps):"]
     (ppi/add-timestamps sample-data)]))
 
 (include-fnvar-as-section #'ppi/recognize-jumps)
@@ -121,7 +121,7 @@
 
   (kind/hiccup
    [:div
-    [:h3 "**Original data**"]
+    [:h4 "Original data:"]
     sample-data
-    [:h3 "**After jump detection**"]
+    [:h4 "After jump detection:"]
     (ppi/recognize-jumps sample-data params)]))
