@@ -1,4 +1,7 @@
-;; # Data preprarations
+;; # Getting the Data Ready
+;;
+;; Polar devices give us messy CSV files with timing issues and gaps.
+;; This notebook cleans things up so we can actually analyze heart rate patterns.
 
 (ns ppi-docs.preparations
   (:require ;; Data manipulation and analysis  
@@ -25,7 +28,6 @@
 
    ;; Project-specific functionality
    [ppi.api :as ppi]))
-
 
 (set! *warn-on-reflection* true)
 
@@ -166,18 +168,15 @@
     (plotly/layer-histogram {:=x :PpInMs
                              :=histogram-nbins 100}))
 
-
-;; ## Precise Timestamp Calculation
+;; ## Fixing the Timestamps
 ;;
-;; The client timestamps show when measurements were sent, but we need the actual
-;; measurement times. We calculate precise timestamps by adding accumulated
-;; pulse-to-pulse intervals to the client timestamp.
+;; The timestamps in the CSV show when data was uploaded, not when each heartbeat happened.
+;; We need to fix this to get accurate heart rate timing.
 
 (def data-with-timestamps
   (ppi/add-timestamps recent-data))
 
-;; **Corrected Time Series Visualization**
-;; Now plot using the corrected timestamps - this shows the actual measurement timing
+;; **Now the timing looks right** - each heartbeat has its own timestamp:
 
 (-> data-with-timestamps
     (tc/select-rows #(= (:Device-UUID %)
@@ -213,14 +212,15 @@
     (plotly/layer-point {:=x :timestamp
                          :=y :Client-Timestamp}))
 
-;; ## Time Series Segmentation
+;; ## Finding the Gaps
 ;;
-;; Medical devices can have interruptions in data collection (battery changes, 
-;; device resets, etc.). We detect these gaps and segment the continuous periods.
+;; Heart monitors get interrupted - battery changes, taking them off, etc.
+;; We need to find these gaps so they don't mess up our analysis.
 
 ;; **Jump Detection: The 5-Second Rule**
 ;; 
 ;; **Parameter Selection Rationale**: We use a 5000ms (5-second) jump threshold based on:
+
 ;; - Normal PPI intervals: 600-1200ms for healthy adults
 ;; - Maximum physiological change: ~3x during extreme exercise transitions
 ;; - Safety margin: 5 seconds allows for any conceivable physiological change
@@ -267,10 +267,10 @@
                                          :=y :PpInMs})))))
          segments)))
 
-;; ## Final data preparation
-
-;; Here we prepare the main dataset to be used in this project.
-;; 
+;; ## Clean Data Ready for Analysis
+;;
+;; We now have clean, segmented heart rate data with proper timing.
+;; Each segment is a continuous recording period we can safely analyze.
 
 (def segmented-data
   (let [params {:jump-threshold 5000}]
