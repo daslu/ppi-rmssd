@@ -1,0 +1,1895 @@
+---
+format:
+  html:
+    toc: true
+    toc-depth: 4
+    theme: [cosmo, notebooks/custom.scss]
+    number-sections: false
+    output-file: ppi_docs.api_reference.html
+code-block-background: true
+
+---
+<style></style><style>.printedClojure .sourceCode {
+  background-color: transparent;
+  border-style: none;
+}
+</style><style>.clay-limit-image-width .clay-image {max-width: 100%}
+.clay-side-by-side .sourceCode {margin: 0}
+.clay-side-by-side {margin: 1em 0}
+</style>
+<script src="ppi_docs.api_reference_files/md-default0.js" type="text/javascript"></script><script src="ppi_docs.api_reference_files/md-default1.js" type="text/javascript"></script>
+
+# API Reference
+
+Complete reference documentation for all functions in the `ppi.api` namespace.
+
+
+
+::: {.sourceClojure}
+```clojure
+(require '[babashka.fs :as fs]
+         '[clojure.math :as math]
+         '[clojure.string :as str]
+         '[java-time.api :as java-time]
+         '[ppi.api :as ppi]
+         '[scicloj.kindly.v4.api :as kindly]
+         '[scicloj.kindly.v4.kind :as kind]
+         '[tablecloth.api :as tc])
+```
+:::
+
+
+## `standardize-csv-line`
+
+`[csv-line]`
+
+Cleans up malformed CSV line by removing redundant quotes.
+  
+  Fixes common CSV parsing issues where fields have excessive quotes:
+  
+  - Removes leading and trailing quotes from the entire line
+  - Removes quadruple quotes (`""""` -> empty)
+  - Converts double quotes to single quotes (`""` -> `"`)
+  
+  **Args:**
+  
+  
+  - `csv-line` - String containing a single CSV line with quote issues
+    
+  **Returns:**
+  String with cleaned quotes
+
+
+### Examples
+
+
+::: {.sourceClojure}
+```clojure
+(ppi/standardize-csv-line "\"hello,world\"")
+```
+:::
+
+
+
+::: {.printedClojure}
+```clojure
+"hello,world"
+
+```
+:::
+
+
+
+::: {.sourceClojure}
+```clojure
+(ppi/standardize-csv-line "hello,\"\"\"\"world")
+```
+:::
+
+
+
+::: {.printedClojure}
+```clojure
+"hello,world"
+
+```
+:::
+
+
+
+::: {.sourceClojure}
+```clojure
+(ppi/standardize-csv-line "hello,\"\"world\"\"")
+```
+:::
+
+
+
+::: {.printedClojure}
+```clojure
+"hello,\"world\""
+
+```
+:::
+
+
+
+::: {.sourceClojure}
+```clojure
+(ppi/standardize-csv-line "\"field1,\"\"value with quotes\"\",field3\"")
+```
+:::
+
+
+
+::: {.printedClojure}
+```clojure
+"field1,\"value with quotes\",field3"
+
+```
+:::
+
+
+## `prepare-standard-csv!`
+
+`[raw-csv-path standard-csv-path]`
+
+Processes a gzipped CSV file to fix quote formatting issues.
+  
+  Reads the raw CSV file, applies quote standardization to each line,
+  and writes a cleaned version. Only processes if the standard file
+  doesn't already exist.
+  
+  **Args:**
+  
+  
+  - `raw-csv-path` - String path to the input gzipped CSV file
+  - `standard-csv-path` - String path for the output standardized gzipped CSV
+    
+  **Side effects:**
+  Creates a new standardized CSV file on disk
+
+
+### Example
+
+Process a malformed CSV file
+
+
+::: {.sourceClojure}
+```clojure
+(def raw-csv-path
+  "data/query_result_2025-05-30T07_52_48.720548159Z.csv.gz")
+```
+:::
+
+
+Create a standardized version with cleaned quotes:
+
+
+::: {.sourceClojure}
+```clojure
+(def standard-csv-path
+  (str/replace raw-csv-path #"\.csv\.gz" ".standard.csv.gz"))
+```
+:::
+
+
+
+::: {.sourceClojure}
+```clojure
+(when-not (fs/exists? standard-csv-path)
+  (ppi/prepare-standard-csv! raw-csv-path standard-csv-path))
+```
+:::
+
+
+
+::: {.printedClojure}
+```clojure
+nil
+
+```
+:::
+
+
+Creates clean-data.csv.gz with fixed quote formatting
+
+## `prepare-raw-data`
+
+`[raw-data colname-prefix]`
+
+Prepares raw CSV data by cleaning column names and parsing numeric fields.
+  
+  Transforms the raw dataset by:
+  
+  - Removing specified column name prefix
+  - Converting spaces to hyphens in column names  
+  - Converting column names to keywords
+  - Parsing comma-separated numeric strings in `:PpInMs` and `:PpErrorEstimate` columns
+  
+  **Args:**
+  
+  
+  - `raw-data` - Tablecloth dataset from CSV with string columns
+  - `colname-prefix` - String prefix to remove from column names
+  
+  **Returns:**
+  Dataset with cleaned column names and parsed numeric values
+
+
+### Example
+
+
+::: {.sourceClojure}
+```clojure
+(let [sample-raw-data (tc/dataset {"Query Results - Device UUID" ["device-1" "device-2"]
+                                   "Query Results - PpInMs" ["1,200" "1,150"]
+                                   "Query Results - PpErrorEstimate" ["5,000" "6,000"]
+                                   "Other Column" ["data1" "data2"]})]
+
+  ;; Show the transformation
+  (kind/hiccup
+   [:div
+    [:h4 "Before:"]
+    sample-raw-data
+    [:h4 "After:"]
+    (ppi/prepare-raw-data sample-raw-data "Query Results - ")]))
+```
+:::
+
+
+
+```{=html}
+<div><h4>Before:</h4><div class="clay-dataset"><p>_unnamed [2 4]:</p><table class="table"><thead><tr><th>Query Results - Device UUID</th><th>Query Results - PpInMs</th><th>Query Results - PpErrorEstimate</th><th>Other Column</th></tr></thead><tbody><tr><td>device-1</td><td>1,200</td><td>5,000</td><td>data1</td></tr><tr><td>device-2</td><td>1,150</td><td>6,000</td><td>data2</td></tr></tbody></table></div><h4>After:</h4><div class="clay-dataset"><p>_unnamed [2 4]:</p><table class="table"><thead><tr><th>:Device-UUID</th><th style="text-align:right;">:PpInMs</th><th style="text-align:right;">:PpErrorEstimate</th><th>:Other-Column</th></tr></thead><tbody><tr><td>device-1</td><td style="text-align:right;">1200</td><td style="text-align:right;">5000</td><td>data1</td></tr><tr><td>device-2</td><td style="text-align:right;">1150</td><td style="text-align:right;">6000</td><td>data2</td></tr></tbody></table></div></div>
+```
+
+
+## `filter-recent-data`
+
+`[prepared-data cutoff-date]`
+
+Filters dataset to include only records after a specified date.
+  
+  **Args:**
+  
+  
+  - `prepared-data` - Dataset with parsed timestamps
+  - `cutoff-date` - `java-time` LocalDateTime, records after this date are kept
+  
+  **Returns:**
+  Filtered dataset containing only recent records
+
+
+### Example
+
+
+::: {.sourceClojure}
+```clojure
+(let [sample-data (tc/dataset {:Client-Timestamp [(java-time/local-date-time 2024 12 31)
+                                                  (java-time/local-date-time 2025 1 15)
+                                                  (java-time/local-date-time 2025 2 1)]
+                               :value [1 2 3]})
+      cutoff-date (java-time/local-date-time 2025 1 1)]
+
+  (kind/hiccup
+   [:div
+    [:h4 "Original data:"]
+    sample-data
+    [:h4 "After filtering (keeping only records after 2025-01-01):"]
+    (ppi/filter-recent-data sample-data cutoff-date)]))
+```
+:::
+
+
+
+```{=html}
+<div><h4>Original data:</h4><div class="clay-dataset"><p>_unnamed [3 2]:</p><table class="table"><thead><tr><th>:Client-Timestamp</th><th style="text-align:right;">:value</th></tr></thead><tbody><tr><td>2024-12-31T00:00</td><td style="text-align:right;">1</td></tr><tr><td>2025-01-15T00:00</td><td style="text-align:right;">2</td></tr><tr><td>2025-02-01T00:00</td><td style="text-align:right;">3</td></tr></tbody></table></div><h4>After filtering (keeping only records after 2025-01-01):</h4><div class="clay-dataset"><p>_unnamed [2 2]:</p><table class="table"><thead><tr><th>:Client-Timestamp</th><th style="text-align:right;">:value</th></tr></thead><tbody><tr><td>2025-01-15T00:00</td><td style="text-align:right;">2</td></tr><tr><td>2025-02-01T00:00</td><td style="text-align:right;">3</td></tr></tbody></table></div></div>
+```
+
+
+## `add-timestamps`
+
+`[data]`
+
+Computes actual timestamps for pulse-to-pulse measurements.
+  
+  Takes a dataset with `:Device-UUID`, `:Client-Timestamp`, and `:PpInMs` columns
+  and calculates precise timestamps for each measurement. Groups by device
+  and client timestamp, accumulates pulse-to-pulse intervals, then adds
+  them to the client timestamp to get actual measurement times.
+  
+  **Args:**
+  
+  
+  - `data` - Tablecloth dataset containing columns:
+    - `:Device-UUID` - device identifier  
+    - `:Client-Timestamp` - base timestamp from client
+    - `:PpInMs` - pulse-to-pulse interval in milliseconds
+          
+  **Returns:**
+  Dataset with additional columns:
+  
+  - `:accumulated-pp` - cumulative sum of pulse intervals
+  - `:timestamp` - precise measurement timestamp (`:Client-Timestamp` + accumulated intervals)
+
+
+### Example
+
+
+::: {.sourceClojure}
+```clojure
+(let [sample-data (tc/dataset {:Device-UUID [#uuid "550e8400-e29b-41d4-a716-446655440000"
+                                             #uuid "550e8400-e29b-41d4-a716-446655440000"]
+                               :Client-Timestamp [(java-time/local-date-time 2025 1 1 12 0)
+                                                  (java-time/local-date-time 2025 1 1 12 0)]
+                               :PpInMs [800 820]})]
+
+  (kind/hiccup
+   [:div
+    [:h4 "Before (client timestamps only):"]
+    sample-data
+    [:h4 "After (with precise measurement timestamps):"]
+    (ppi/add-timestamps sample-data)]))
+```
+:::
+
+
+
+```{=html}
+<div><h4>Before (client timestamps only):</h4><div class="clay-dataset"><p>_unnamed [2 3]:</p><table class="table"><thead><tr><th>:Device-UUID</th><th>:Client-Timestamp</th><th style="text-align:right;">:PpInMs</th></tr></thead><tbody><tr><td>550e8400-e29b-41d4-a716-446655440000</td><td>2025-01-01T12:00</td><td style="text-align:right;">800</td></tr><tr><td>550e8400-e29b-41d4-a716-446655440000</td><td>2025-01-01T12:00</td><td style="text-align:right;">820</td></tr></tbody></table></div><h4>After (with precise measurement timestamps):</h4><div class="clay-dataset"><p>_unnamed [2 5]:</p><table class="table"><thead><tr><th>:Device-UUID</th><th>:Client-Timestamp</th><th style="text-align:right;">:PpInMs</th><th style="text-align:right;">:accumulated-pp</th><th>:timestamp</th></tr></thead><tbody><tr><td>550e8400-e29b-41d4-a716-446655440000</td><td>2025-01-01T12:00</td><td style="text-align:right;">800</td><td style="text-align:right;">800</td><td>2025-01-01T12:00:00.800</td></tr><tr><td>550e8400-e29b-41d4-a716-446655440000</td><td>2025-01-01T12:00</td><td style="text-align:right;">820</td><td style="text-align:right;">1620</td><td>2025-01-01T12:00:01.620</td></tr></tbody></table></div></div>
+```
+
+
+## `recognize-jumps`
+
+`[data {:keys [jump-threshold]}]`
+
+Identifies temporal discontinuities in time series data.
+  
+  Analyzes timestamps to detect gaps that exceed a threshold, indicating
+  potential data collection interruptions or device resets. For each device,
+  calculates time differences between consecutive measurements and marks
+  jumps when gaps exceed the threshold.
+  
+  **Args:**
+  
+  
+  - `data` - Tablecloth dataset with `:Device-UUID` and `:timestamp` columns
+  - `params` - Map containing:
+    - `:jump-threshold` - minimum gap in milliseconds to consider a jump
+            
+  **Returns:**
+  Dataset with an additional column:
+  - `:jump-count` - cumulative count of jumps per device (creates segments)
+
+
+### Example
+
+
+::: {.sourceClojure}
+```clojure
+(let [sample-data (tc/dataset {:Device-UUID [#uuid "550e8400-e29b-41d4-a716-446655440000"
+                                             #uuid "550e8400-e29b-41d4-a716-446655440000"
+                                             #uuid "550e8400-e29b-41d4-a716-446655440000"]
+                               :timestamp [(java-time/local-date-time 2025 1 1 12 0 0)
+                                           (java-time/local-date-time 2025 1 1 12 0 1)
+                                           (java-time/local-date-time 2025 1 1 12 0 8)]}) ; 7 second gap
+      params {:jump-threshold 5000}] ; 5 second threshold
+
+  (kind/hiccup
+   [:div
+    [:h4 "Original data:"]
+    sample-data
+    [:h4 "After jump detection:"]
+    (ppi/recognize-jumps sample-data params)]))
+```
+:::
+
+
+
+```{=html}
+<div><h4>Original data:</h4><div class="clay-dataset"><p>_unnamed [3 2]:</p><table class="table"><thead><tr><th>:Device-UUID</th><th>:timestamp</th></tr></thead><tbody><tr><td>550e8400-e29b-41d4-a716-446655440000</td><td>2025-01-01T12:00</td></tr><tr><td>550e8400-e29b-41d4-a716-446655440000</td><td>2025-01-01T12:00:01</td></tr><tr><td>550e8400-e29b-41d4-a716-446655440000</td><td>2025-01-01T12:00:08</td></tr></tbody></table></div><h4>After jump detection:</h4><div class="clay-dataset"><p>_unnamed [3 3]:</p><table class="table"><thead><tr><th>:Device-UUID</th><th>:timestamp</th><th style="text-align:right;">:jump-count</th></tr></thead><tbody><tr><td>550e8400-e29b-41d4-a716-446655440000</td><td>2025-01-01T12:00</td><td style="text-align:right;">0</td></tr><tr><td>550e8400-e29b-41d4-a716-446655440000</td><td>2025-01-01T12:00:01</td><td style="text-align:right;">0</td></tr><tr><td>550e8400-e29b-41d4-a716-446655440000</td><td>2025-01-01T12:00:08</td><td style="text-align:right;">1</td></tr></tbody></table></div></div>
+```
+
+
+## `prepare-timestamped-ppi-data`
+
+`[standard-csv-path]`
+
+Prepares a continous PPI dataset from the raw data.
+  This is the main dataset to be used in the analysis.
+
+  **Args:**
+  
+  
+  - `standard-csv-path` - path to the raw data
+            
+  **Returns:**
+  Dataset with columns: `:Device-UUID :timestamp :PpInMs :PpErrorEstimate`
+
+
+### Example
+
+
+::: {.sourceClojure}
+```clojure
+(when (fs/exists? standard-csv-path)
+  ;; Process the standardized CSV to create timestamped PPI data
+  (def timestamped-data (ppi/prepare-timestamped-ppi-data standard-csv-path))
+
+  ;; Show a sample of the processed data
+  (kind/hiccup
+   [:div
+    [:h4 "Sample of timestamped PPI data:"]
+    (-> timestamped-data
+        (tc/head 5)
+        (tc/select-columns [:Device-UUID :Client-Timestamp :PpInMs :timestamp :accumulated-pp]))]))
+```
+:::
+
+
+
+```{=html}
+<div><h4>Sample of timestamped PPI data:</h4><div class="clay-dataset"><p>_unnamed [5 3]:</p><table class="table"><thead><tr><th>:Device-UUID</th><th style="text-align:right;">:PpInMs</th><th>:timestamp</th></tr></thead><tbody><tr><td>342f7b6b-4f2a-64cb-1ead-bc189f7eb89d</td><td style="text-align:right;">833</td><td>2025-05-10T12:40:00.833</td></tr><tr><td>342f7b6b-4f2a-64cb-1ead-bc189f7eb89d</td><td style="text-align:right;">1013</td><td>2025-05-10T12:40:01.846</td></tr><tr><td>342f7b6b-4f2a-64cb-1ead-bc189f7eb89d</td><td style="text-align:right;">770</td><td>2025-05-10T12:40:02.616</td></tr><tr><td>342f7b6b-4f2a-64cb-1ead-bc189f7eb89d</td><td style="text-align:right;">1001</td><td>2025-05-10T12:40:03.617</td></tr><tr><td>342f7b6b-4f2a-64cb-1ead-bc189f7eb89d</td><td style="text-align:right;">798</td><td>2025-05-10T12:40:04.415</td></tr></tbody></table></div></div>
+```
+
+
+## `calculate-coefficient-of-variation`
+
+`[values]`
+
+Calculate coefficient of variation using dtype-next vectorized operations.
+  
+  **Args:**
+  
+  
+  - `values` - Sequence or array of numeric values
+  
+  **Returns:**
+  Double - CV as percentage (0-100)
+
+
+### Examples
+
+Low variability (healthy, stable heart rate)
+
+
+::: {.sourceClojure}
+```clojure
+(let [stable-intervals [800 810 805 815 820]]
+  (printf "Stable intervals %s -> CV: %.2f%%\n"
+          stable-intervals
+          (ppi/calculate-coefficient-of-variation stable-intervals)))
+```
+:::
+
+
+
+::: {.printedClojure}
+```clojure
+nil
+
+```
+:::
+
+
+High variability (irregular heart rate)
+
+
+::: {.sourceClojure}
+```clojure
+(let [variable-intervals [700 900 750 1000 650]]
+  (printf "Variable intervals %s -> CV: %.2f%%\n"
+          variable-intervals
+          (ppi/calculate-coefficient-of-variation variable-intervals)))
+```
+:::
+
+
+
+::: {.printedClojure}
+```clojure
+nil
+
+```
+:::
+
+
+## `calculate-successive-changes`
+
+`[values]`
+
+Calculate percentage changes between successive elements efficiently.
+  
+  **Args:**
+  
+  
+  - `values` - Sequence or array of numeric values
+  
+  **Returns:**
+  Array of successive percentage changes
+
+
+### Examples
+
+Calculate successive percentage changes
+
+
+::: {.sourceClojure}
+```clojure
+(let [ppi-intervals [800 850 820 880 810]]
+  (kind/hiccup
+   [:div
+    [:h4 "PPI intervals:"] [:code (pr-str ppi-intervals)]
+    [:h4 "Successive percentage changes:"]
+    [:code (pr-str (vec (ppi/calculate-successive-changes ppi-intervals)))]]))
+```
+:::
+
+
+
+```{=html}
+<div><h4>PPI intervals:</h4><code>[800 850 820 880 810]</code><h4>Successive percentage changes:</h4><code>[6.25 3.5294117647058822 7.317073170731707 7.954545454545454]</code></div>
+```
+
+
+Example with larger changes
+
+
+::: {.sourceClojure}
+```clojure
+(let [volatile-intervals [800 1200 600 1000 500]]
+  (printf "Volatile intervals %s -> Max change: %.1f%%\n"
+          volatile-intervals
+          (apply max (ppi/calculate-successive-changes volatile-intervals))))
+```
+:::
+
+
+
+::: {.printedClojure}
+```clojure
+nil
+
+```
+:::
+
+
+## `clean-segment?`
+
+`[segment-data {:keys [max-error-estimate max-heart-rate-cv max-successive-change min-clean-duration min-clean-samples]}]`
+
+Identifies high-quality 'clean' segments suitable for ground truth analysis.
+  
+  These segments serve as reference data for validating cleaning algorithms by
+  providing pristine examples before artificial distortion is applied.
+  
+  Uses dtype-next fast statistical functions for improved performance.
+  
+  **Args:**
+  
+  
+  - `segment-data` - The time series of one segment of one device.
+  - `params` - Map containing quality thresholds:
+    - `:max-error-estimate` - Maximum acceptable PP error 
+    - `:max-heart-rate-cv` - Maximum coefficient of variation for heart rate (%)
+    - `:max-successive-change` - Maximum allowed successive PP change (%)
+    - `:min-clean-duration` - Minimum duration for clean segments (ms)
+    - `:min-clean-samples` - Minimum samples required
+    
+  **Returns:**
+  Dataset containing only segments that meet all cleanliness criteria
+
+
+### Example
+
+
+::: {.sourceClojure}
+```clojure
+(let [;; Create sample segment data
+      base-time (java-time/local-date-time 2025 1 1 12 0 0)
+      clean-segment (tc/dataset {:timestamp [(java-time/plus base-time (java-time/seconds 0))
+                                             (java-time/plus base-time (java-time/seconds 1))
+                                             (java-time/plus base-time (java-time/seconds 2))
+                                             (java-time/plus base-time (java-time/seconds 3))
+                                             (java-time/plus base-time (java-time/seconds 4))]
+                                 :PpInMs [800 810 805 815 820] ; Low variability
+                                 :PpErrorEstimate [5 4 6 5 4]}) ; Low error
+      noisy-segment (tc/dataset {:timestamp [(java-time/plus base-time (java-time/seconds 0))
+                                             (java-time/plus base-time (java-time/seconds 1))
+                                             (java-time/plus base-time (java-time/seconds 2))
+                                             (java-time/plus base-time (java-time/seconds 3))
+                                             (java-time/plus base-time (java-time/seconds 4))]
+                                 :PpInMs [800 1200 600 1400 500] ; High variability
+                                 :PpErrorEstimate [50 60 55 45 65]}) ; High error
+      quality-params {:max-error-estimate 10
+                      :max-heart-rate-cv 5.0
+                      :max-successive-change 10.0
+                      :min-clean-duration 3000
+                      :min-clean-samples 5}]
+
+  (kind/hiccup
+   [:div
+    [:h4 "Quality Assessment Results:"]
+    [:p [:strong "Clean segment (stable intervals, low error): "]
+     (if (ppi/clean-segment? clean-segment quality-params) "✓ CLEAN" "✗ REJECTED")]
+    [:p [:strong "Noisy segment (variable intervals, high error): "]
+     (if (ppi/clean-segment? noisy-segment quality-params) "✓ CLEAN" "✗ REJECTED")]]))
+```
+:::
+
+
+
+```{=html}
+<div><h4>Quality Assessment Results:</h4><p><strong>Clean segment (stable intervals, low error): </strong>✓ CLEAN</p><p><strong>Noisy segment (variable intervals, high error): </strong>✗ REJECTED</p></div>
+```
+
+
+
+## Windowed Dataset Functions
+
+The windowed dataset functionality provides efficient circular buffer operations for streaming HRV analysis.
+
+
+### WindowedDataset Record
+
+The `WindowedDataset` record implements a circular buffer data structure optimized for time-series analysis:
+
+```clojure
+(defrecord WindowedDataset
+          [dataset           ; tech.v3.dataset containing the actual data
+           column-types      ; map of column names to data types
+           max-size         ; maximum number of rows the buffer can hold
+           current-size     ; current number of rows (0 to max-size)
+           current-position ; current write position (circular index)])
+```
+
+**Key Characteristics:**
+
+- **Fixed Memory**: Pre-allocates arrays for maximum performance
+- **Circular Buffer**: New data overwrites oldest when buffer is full
+- **Chronological Access**: Functions provide data in insertion order
+- **Zero-Copy Views**: Time windows are extracted without data copying
+- **Type Safety**: Column types are enforced at creation time
+
+**Usage Pattern:**
+
+1. Create with `make-windowed-dataset` specifying column types and buffer size
+2. Insert streaming data with `insert-to-windowed-dataset!` (❗**Caution: mutating the internal dataset.**)
+3. Extract time windows with `windowed-dataset->time-window-dataset`
+4. Compute HRV metrics like RMSSD over specific time periods
+
+This design enables real-time HRV analysis with consistent memory usage and sub-millisecond response times.
+
+
+### WindowedDataset Structure Example
+
+
+::: {.sourceClojure}
+```clojure
+(let [;; Create a windowed dataset to examine its structure
+      wd (ppi/make-windowed-dataset {:timestamp :local-date-time :PpInMs :int32} 3)
+      base-time (java-time/local-date-time 2025 1 1 12 0 0)
+
+      ;; Add one data point to see the structure
+      wd-with-data (ppi/insert-to-windowed-dataset! wd {:timestamp base-time :PpInMs 800})]
+
+  (kind/hiccup
+   [:div
+    [:h4 "WindowedDataset Record Fields:"]
+    [:table
+     [:thead [:tr [:th "Field"] [:th "Value"] [:th "Description"]]]
+     [:tbody
+      [:tr [:td [:code ":dataset"]] [:td "tech.v3.dataset"] [:td "Internal data storage"]]
+      [:tr [:td [:code ":column-types"]] [:td [:code (pr-str (:column-types wd-with-data))]] [:td "Column type specifications"]]
+      [:tr [:td [:code ":max-size"]] [:td (:max-size wd-with-data)] [:td "Buffer capacity"]]
+      [:tr [:td [:code ":current-size"]] [:td (:current-size wd-with-data)] [:td "Current number of rows"]]
+      [:tr [:td [:code ":current-position"]] [:td (:current-position wd-with-data)] [:td "Next write position"]]]]]))
+```
+:::
+
+
+
+```{=html}
+<div><h4>WindowedDataset Record Fields:</h4><table><thead><tr><th>Field</th><th>Value</th><th>Description</th></tr></thead><tbody><tr><td><code>:dataset</code></td><td>tech.v3.dataset</td><td>Internal data storage</td></tr><tr><td><code>:column-types</code></td><td><code>{:timestamp :local-date-time, :PpInMs :int32}</code></td><td>Column type specifications</td></tr><tr><td><code>:max-size</code></td><td>3</td><td>Buffer capacity</td></tr><tr><td><code>:current-size</code></td><td>1</td><td>Current number of rows</td></tr><tr><td><code>:current-position</code></td><td>1</td><td>Next write position</td></tr></tbody></table></div>
+```
+
+
+
+### Circular Buffer Behavior
+
+
+::: {.sourceClojure}
+```clojure
+(let [;; Demonstrate circular buffer behavior
+      small-wd (ppi/make-windowed-dataset {:value :int32} 3)
+
+      ;; Fill beyond capacity to show circular behavior
+      test-data (map (fn [i] {:value i}) (range 5))
+      final-wd (reduce ppi/insert-to-windowed-dataset! small-wd test-data)]
+
+  (kind/hiccup
+   [:div
+    [:h4 "Circular Buffer Example (capacity: 3, inserted: 5 values):"]
+    [:p [:strong "Final state: "]
+     (format "size=%d, position=%d (values 0,1 were overwritten by 3,4)"
+             (:current-size final-wd)
+             (:current-position final-wd))]
+    [:p [:strong "Data in chronological order: "]]
+    (ppi/windowed-dataset->dataset final-wd)]))
+```
+:::
+
+
+
+```{=html}
+<div><h4>Circular Buffer Example (capacity: 3, inserted: 5 values):</h4><p><strong>Final state: </strong>size=3, position=2 (values 0,1 were overwritten by 3,4)</p><p><strong>Data in chronological order: </strong></p><div class="clay-dataset"><p>_unnamed [3 1]:</p><table class="table"><thead><tr><th style="text-align:right;">:value</th></tr></thead><tbody><tr><td style="text-align:right;">2</td></tr><tr><td style="text-align:right;">3</td></tr><tr><td style="text-align:right;">4</td></tr></tbody></table></div></div>
+```
+
+
+## `make-windowed-dataset`
+
+`[column-types max-size]`
+
+Create an empty `WindowedDataset` with a given `max-size`
+  and given `column-types` (map).
+
+  **Args:**
+  
+  
+  - `column-types` - a map from column name to type
+  - `max-size` - maximal window size to keep
+
+  **Returns:**
+  The specified `WindowedDataset` structure.
+
+
+### Example
+
+
+::: {.sourceClojure}
+```clojure
+(let [;; Create a windowed dataset for HRV data with 10-sample capacity
+      column-spec {:timestamp :local-date-time
+                   :PpInMs :int32
+                   :heartbeat-id :int32}
+      wd (ppi/make-windowed-dataset column-spec 10)]
+
+  (kind/hiccup
+   [:div
+    [:h4 "Created windowed dataset:"]
+    [:p [:strong "Max size: "] (:max-size wd)]
+    [:p [:strong "Current size: "] (:current-size wd)]
+    [:p [:strong "Current position: "] (:current-position wd)]
+    [:p [:strong "Column types: "] [:code (pr-str (:column-types wd))]]]))
+```
+:::
+
+
+
+```{=html}
+<div><h4>Created windowed dataset:</h4><p><strong>Max size: </strong>10</p><p><strong>Current size: </strong>0</p><p><strong>Current position: </strong>0</p><p><strong>Column types: </strong><code>{:timestamp :local-date-time, :PpInMs :int32, :heartbeat-id :int32}</code></p></div>
+```
+
+
+## `insert-to-windowed-dataset!`
+
+`[{:as windowed-dataset, :keys [dataset column-types max-size current-position]} value]`
+
+Insert a new row to a `WindowedDataset`.
+  
+  **Args:**
+  
+  
+  - `windowed-dataset` - a `WindowedDataset`
+  - `row` - A row represented as a map structure
+  (can be a record or `FastStruct`, etc.)
+
+  **Returns:**
+  Updated windowed dataset with its data mutated(!).
+
+
+### Example
+
+
+::: {.sourceClojure}
+```clojure
+(let [;; Create windowed dataset
+      wd (ppi/make-windowed-dataset {:timestamp :local-date-time :PpInMs :int32 :value :int32} 5)
+      base-time (java-time/local-date-time 2025 1 1 12 0 0)
+
+      ;; Insert some data points
+      sample-data [{:timestamp base-time :PpInMs 800 :value 1}
+                   {:timestamp (java-time/plus base-time (java-time/millis 1000)) :PpInMs 850 :value 2}
+                   {:timestamp (java-time/plus base-time (java-time/millis 2000)) :PpInMs 820 :value 3}]
+
+      ;; Insert data step by step
+      wd-step1 (ppi/insert-to-windowed-dataset! wd (first sample-data))
+      wd-step2 (ppi/insert-to-windowed-dataset! wd-step1 (second sample-data))
+      final-wd (ppi/insert-to-windowed-dataset! wd-step2 (last sample-data))]
+
+  (kind/hiccup
+   [:div
+    [:h4 "Windowed dataset after inserting 3 records:"]
+    [:p [:strong "Current size: "] (:current-size final-wd)]
+    [:p [:strong "Data view: "]]
+    (ppi/windowed-dataset->dataset final-wd)]))
+```
+:::
+
+
+
+```{=html}
+<div><h4>Windowed dataset after inserting 3 records:</h4><p><strong>Current size: </strong>3</p><p><strong>Data view: </strong></p><div class="clay-dataset"><p>_unnamed [3 3]:</p><table class="table"><thead><tr><th>:timestamp</th><th style="text-align:right;">:PpInMs</th><th style="text-align:right;">:value</th></tr></thead><tbody><tr><td>2025-01-01T12:00</td><td style="text-align:right;">800</td><td style="text-align:right;">1</td></tr><tr><td>2025-01-01T12:00:01</td><td style="text-align:right;">850</td><td style="text-align:right;">2</td></tr><tr><td>2025-01-01T12:00:02</td><td style="text-align:right;">820</td><td style="text-align:right;">3</td></tr></tbody></table></div></div>
+```
+
+
+## `windowed-dataset-indices`
+
+`[{:keys [max-size current-size current-position]}]`
+
+Extract the row indices for retrieving data from a windowed dataset in insertion order.
+  
+  This utility function encapsulates the logic for determining which rows to select
+  from the underlying dataset to present data in the correct chronological order.
+  
+  **Args:**
+  
+  
+  - `windowed-dataset` - a `WindowedDataset`
+  
+  **Returns:**
+  Vector of integer indices in the correct order for data retrieval
+
+
+### Example
+
+
+::: {.sourceClojure}
+```clojure
+(let [;; Create and populate a small windowed dataset
+      wd (ppi/make-windowed-dataset {:value :int32} 4)
+      ;; Insert 6 items (will wrap around)
+      final-wd (reduce ppi/insert-to-windowed-dataset! wd
+                       (map (fn [i] {:value i}) (range 6)))]
+
+  (kind/hiccup
+   [:div
+    [:h4 "Windowed dataset with circular buffer behavior:"]
+    [:p [:strong "Dataset state: "] (format "size=%d, position=%d, max=%d"
+                                            (:current-size final-wd)
+                                            (:current-position final-wd)
+                                            (:max-size final-wd))]
+    [:p [:strong "Index order for chronological access: "]
+     [:code (pr-str (ppi/windowed-dataset-indices final-wd))]]
+    [:p [:strong "Data in insertion order: "]]
+    (ppi/windowed-dataset->dataset final-wd)]))
+```
+:::
+
+
+
+```{=html}
+<div><h4>Windowed dataset with circular buffer behavior:</h4><p><strong>Dataset state: </strong>size=4, position=2, max=4</p><p><strong>Index order for chronological access: </strong><code>[2 3 0 1]</code></p><p><strong>Data in insertion order: </strong></p><div class="clay-dataset"><p>_unnamed [4 1]:</p><table class="table"><thead><tr><th style="text-align:right;">:value</th></tr></thead><tbody><tr><td style="text-align:right;">2</td></tr><tr><td style="text-align:right;">3</td></tr><tr><td style="text-align:right;">4</td></tr><tr><td style="text-align:right;">5</td></tr></tbody></table></div></div>
+```
+
+
+## `windowed-dataset->dataset`
+
+`[{:as windowed-dataset, :keys [dataset]}]`
+
+Return a regular dataset as a view over the content of a windowed dataset.
+
+  **Args:**
+  
+  
+  - `windowed-dataset` - a `WindowedDataset`
+
+
+### Example
+
+
+::: {.sourceClojure}
+```clojure
+(let [;; Create windowed dataset with sample HRV data
+      base-time (java-time/local-date-time 2025 1 1 12 0 0)
+      hrv-data (map (fn [i interval]
+                      {:timestamp (java-time/plus base-time (java-time/millis (* i 1000)))
+                       :PpInMs interval
+                       :heartbeat-id i})
+                    (range 8)
+                    [800 850 820 880 810 840 795 825])
+      wd (ppi/make-windowed-dataset {:timestamp :local-date-time :PpInMs :int32 :heartbeat-id :int32} 5)
+      final-wd (reduce ppi/insert-to-windowed-dataset! wd hrv-data)]
+
+  (kind/hiccup
+   [:div
+    [:h4 "Converting windowed dataset to regular dataset:"]
+    [:p "Inserted 8 heartbeats into 5-capacity window (last 5 retained):"]
+    (ppi/windowed-dataset->dataset final-wd)]))
+```
+:::
+
+
+
+```{=html}
+<div><h4>Converting windowed dataset to regular dataset:</h4><p>Inserted 8 heartbeats into 5-capacity window (last 5 retained):</p><div class="clay-dataset"><p>_unnamed [5 3]:</p><table class="table"><thead><tr><th>:timestamp</th><th style="text-align:right;">:PpInMs</th><th style="text-align:right;">:heartbeat-id</th></tr></thead><tbody><tr><td>2025-01-01T12:00:03</td><td style="text-align:right;">880</td><td style="text-align:right;">3</td></tr><tr><td>2025-01-01T12:00:04</td><td style="text-align:right;">810</td><td style="text-align:right;">4</td></tr><tr><td>2025-01-01T12:00:05</td><td style="text-align:right;">840</td><td style="text-align:right;">5</td></tr><tr><td>2025-01-01T12:00:06</td><td style="text-align:right;">795</td><td style="text-align:right;">6</td></tr><tr><td>2025-01-01T12:00:07</td><td style="text-align:right;">825</td><td style="text-align:right;">7</td></tr></tbody></table></div></div>
+```
+
+
+## `binary-search-timestamp-start`
+
+`[timestamp-col indices target-time]`
+
+Find the first index position where timestamp >= target-time using binary search.
+  
+  **Args:**
+  
+  
+  - `timestamp-col` - dataset column containing timestamps
+  - `indices` - vector of indices in chronological order
+  - `target-time` - target timestamp to search for
+  
+  **Returns:**
+  Index position in the indices vector (not the actual dataset index)
+
+
+### Example
+
+
+::: {.sourceClojure}
+```clojure
+(let [;; Create sample timestamp data
+      base-time (java-time/local-date-time 2025 1 1 12 0 0)
+      timestamps (map #(java-time/plus base-time (java-time/millis (* % 2000))) (range 5))
+      timestamp-col (vec timestamps)
+      indices (vec (range 5))
+
+      ;; Search for different target times
+      search-cases [[(java-time/plus base-time (java-time/millis 3000)) "Between timestamps"]
+                    [(java-time/plus base-time (java-time/millis 4000)) "Exact match"]
+                    [(java-time/minus base-time (java-time/millis 1000)) "Before all timestamps"]
+                    [(java-time/plus base-time (java-time/millis 10000)) "After all timestamps"]]]
+
+  (kind/hiccup
+   [:div
+    [:h4 "Binary search examples:"]
+    [:p [:strong "Timestamps: "] (map #(java-time/format "HH:mm:ss" %) timestamps)]
+    [:table
+     [:thead [:tr [:th "Target Time"] [:th "Description"] [:th "Found Position"]]]
+     [:tbody
+      (for [[target-time description] search-cases]
+        [:tr
+         [:td (java-time/format "HH:mm:ss" target-time)]
+         [:td description]
+         [:td (ppi/binary-search-timestamp-start timestamp-col indices target-time)]])]]]))
+```
+:::
+
+
+
+```{=html}
+<div><h4>Binary search examples:</h4><p><strong>Timestamps: </strong>12:00:0012:00:0212:00:0412:00:0612:00:08</p><table><thead><tr><th>Target Time</th><th>Description</th><th>Found Position</th></tr></thead><tbody><tr><td>12:00:03</td><td>Between timestamps</td><td>2</td></tr><tr><td>12:00:04</td><td>Exact match</td><td>2</td></tr><tr><td>11:59:59</td><td>Before all timestamps</td><td>0</td></tr><tr><td>12:00:10</td><td>After all timestamps</td><td>5</td></tr></tbody></table></div>
+```
+
+
+## `windowed-dataset->time-window-dataset`
+
+`[{:as windowed-dataset, :keys [dataset]} timestamp-colname time-window]`
+
+Return a regular dataset as a view over the content of a windowed dataset,
+  including only a recent time window. Uses binary search for optimal performance.
+
+  **Args:**
+  
+  
+  - `windowed-dataset` - a `WindowedDataset`
+  - `timestamp-colname` - the name of the column that contains timestamps
+  - `time-window` - window length in ms (from most recent timestamp backwards)
+
+  **Returns:**
+  Dataset containing only data within the specified time window
+  
+  **Performance:** O(log n) time complexity using binary search
+
+
+### Example
+
+
+::: {.sourceClojure}
+```clojure
+(let [;; Create realistic HRV scenario with timestamps
+      base-time (java-time/local-date-time 2025 1 1 12 0 0)
+      hrv-intervals [800 820 790 830 810 840 795 825 815 805 820 800 830 810 840]
+
+      ;; Create timestamped data (each measurement advances by its interval)
+      hrv-data (loop [i 0, current-time base-time, intervals hrv-intervals, result []]
+                 (if (empty? intervals)
+                   result
+                   (let [interval (first intervals)]
+                     (recur (inc i)
+                            (java-time/plus current-time (java-time/millis interval))
+                            (rest intervals)
+                            (conj result {:timestamp current-time
+                                          :PpInMs interval
+                                          :heartbeat-id i})))))
+
+      wd (ppi/make-windowed-dataset {:timestamp :local-date-time :PpInMs :int32 :heartbeat-id :int32} 20)
+      final-wd (reduce ppi/insert-to-windowed-dataset! wd hrv-data)]
+
+  (kind/hiccup
+   [:div
+    [:h4 "Time window extraction examples:"]
+    [:p (format "Created %d heartbeats over ~%.1f seconds"
+                (count hrv-data)
+                (/ (reduce + hrv-intervals) 1000.0))]
+
+    [:h5 "Last 5 seconds of data:"]
+    (ppi/windowed-dataset->time-window-dataset final-wd :timestamp 5000)
+
+    [:h5 "Last 10 seconds of data:"]
+    (ppi/windowed-dataset->time-window-dataset final-wd :timestamp 10000)
+
+    [:h5 "All data (30-second window):"]
+    (-> (ppi/windowed-dataset->time-window-dataset final-wd :timestamp 30000)
+        (tc/select-columns [:heartbeat-id :PpInMs]))]))
+```
+:::
+
+
+
+```{=html}
+<div><h4>Time window extraction examples:</h4><p>Created 15 heartbeats over ~12.2 seconds</p><h5>Last 5 seconds of data:</h5><div class="clay-dataset"><p>_unnamed [7 3]:</p><table class="table"><thead><tr><th>:timestamp</th><th style="text-align:right;">:PpInMs</th><th style="text-align:right;">:heartbeat-id</th></tr></thead><tbody><tr><td>2025-01-01T12:00:06.510</td><td style="text-align:right;">815</td><td style="text-align:right;">8</td></tr><tr><td>2025-01-01T12:00:07.325</td><td style="text-align:right;">805</td><td style="text-align:right;">9</td></tr><tr><td>2025-01-01T12:00:08.130</td><td style="text-align:right;">820</td><td style="text-align:right;">10</td></tr><tr><td>2025-01-01T12:00:08.950</td><td style="text-align:right;">800</td><td style="text-align:right;">11</td></tr><tr><td>2025-01-01T12:00:09.750</td><td style="text-align:right;">830</td><td style="text-align:right;">12</td></tr><tr><td>2025-01-01T12:00:10.580</td><td style="text-align:right;">810</td><td style="text-align:right;">13</td></tr><tr><td>2025-01-01T12:00:11.390</td><td style="text-align:right;">840</td><td style="text-align:right;">14</td></tr></tbody></table></div><h5>Last 10 seconds of data:</h5><div class="clay-dataset"><p>_unnamed [13 3]:</p><table class="table"><thead><tr><th>:timestamp</th><th style="text-align:right;">:PpInMs</th><th style="text-align:right;">:heartbeat-id</th></tr></thead><tbody><tr><td>2025-01-01T12:00:01.620</td><td style="text-align:right;">790</td><td style="text-align:right;">2</td></tr><tr><td>2025-01-01T12:00:02.410</td><td style="text-align:right;">830</td><td style="text-align:right;">3</td></tr><tr><td>2025-01-01T12:00:03.240</td><td style="text-align:right;">810</td><td style="text-align:right;">4</td></tr><tr><td>2025-01-01T12:00:04.050</td><td style="text-align:right;">840</td><td style="text-align:right;">5</td></tr><tr><td>2025-01-01T12:00:04.890</td><td style="text-align:right;">795</td><td style="text-align:right;">6</td></tr><tr><td>2025-01-01T12:00:05.685</td><td style="text-align:right;">825</td><td style="text-align:right;">7</td></tr><tr><td>2025-01-01T12:00:06.510</td><td style="text-align:right;">815</td><td style="text-align:right;">8</td></tr><tr><td>2025-01-01T12:00:07.325</td><td style="text-align:right;">805</td><td style="text-align:right;">9</td></tr><tr><td>2025-01-01T12:00:08.130</td><td style="text-align:right;">820</td><td style="text-align:right;">10</td></tr><tr><td>2025-01-01T12:00:08.950</td><td style="text-align:right;">800</td><td style="text-align:right;">11</td></tr><tr><td>2025-01-01T12:00:09.750</td><td style="text-align:right;">830</td><td style="text-align:right;">12</td></tr><tr><td>2025-01-01T12:00:10.580</td><td style="text-align:right;">810</td><td style="text-align:right;">13</td></tr><tr><td>2025-01-01T12:00:11.390</td><td style="text-align:right;">840</td><td style="text-align:right;">14</td></tr></tbody></table></div><h5>All data (30-second window):</h5><div class="clay-dataset"><p>_unnamed [15 2]:</p><table class="table"><thead><tr><th style="text-align:right;">:heartbeat-id</th><th style="text-align:right;">:PpInMs</th></tr></thead><tbody><tr><td style="text-align:right;">0</td><td style="text-align:right;">800</td></tr><tr><td style="text-align:right;">1</td><td style="text-align:right;">820</td></tr><tr><td style="text-align:right;">2</td><td style="text-align:right;">790</td></tr><tr><td style="text-align:right;">3</td><td style="text-align:right;">830</td></tr><tr><td style="text-align:right;">4</td><td style="text-align:right;">810</td></tr><tr><td style="text-align:right;">5</td><td style="text-align:right;">840</td></tr><tr><td style="text-align:right;">6</td><td style="text-align:right;">795</td></tr><tr><td style="text-align:right;">7</td><td style="text-align:right;">825</td></tr><tr><td style="text-align:right;">8</td><td style="text-align:right;">815</td></tr><tr><td style="text-align:right;">9</td><td style="text-align:right;">805</td></tr><tr><td style="text-align:right;">10</td><td style="text-align:right;">820</td></tr><tr><td style="text-align:right;">11</td><td style="text-align:right;">800</td></tr><tr><td style="text-align:right;">12</td><td style="text-align:right;">830</td></tr><tr><td style="text-align:right;">13</td><td style="text-align:right;">810</td></tr><tr><td style="text-align:right;">14</td><td style="text-align:right;">840</td></tr></tbody></table></div></div>
+```
+
+
+## `windowed-dataset->rmssd`
+
+`[windowed-dataset timestamp-colname time-window]`
+
+`[windowed-dataset timestamp-colname time-window ppi-colname]`
+
+Compute RMSSD (Root Mean Square of Successive Differences) from a windowed dataset
+  over a specified time window.
+  
+  RMSSD is a time-domain Heart Rate Variability measure that quantifies the 
+  short-term variability in pulse-to-pulse intervals by calculating the root 
+  mean square of the differences between successive intervals.
+  
+  **Args:**
+  
+  
+  - `windowed-dataset` - a `WindowedDataset` containing PPI data
+  - `timestamp-colname` - the name of the column that contains timestamps  
+  - `time-window` - window length in ms (from most recent timestamp backwards)
+  - `ppi-colname` - column name containing pulse-to-pulse intervals (default: :PpInMs)
+  
+  **Returns:**
+  RMSSD value in milliseconds, or nil if insufficient data (< 2 intervals)
+  
+  **Performance:** O(log n) time complexity using binary search for time window extraction,
+  with high-performance dtype-next operations for RMSSD calculation
+
+
+### Examples
+
+
+::: {.sourceClojure}
+```clojure
+(let [;; Create sample HRV data for RMSSD calculation
+      base-time (java-time/local-date-time 2025 1 1 12 0 0)
+
+      ;; Test case 1: Known values for verification
+      test-intervals [800 850 820 880 810] ; Expected RMSSD ≈ 54.54 ms
+      test-data (map (fn [i interval]
+                       {:timestamp (java-time/plus base-time (java-time/millis (* i 1000)))
+                        :PpInMs interval})
+                     (range 5)
+                     test-intervals)
+
+      wd (ppi/make-windowed-dataset {:timestamp :local-date-time :PpInMs :int32} 10)
+      test-wd (reduce ppi/insert-to-windowed-dataset! wd test-data)]
+
+  (kind/hiccup
+   [:div
+    [:h4 "RMSSD Calculation Examples:"]
+
+    [:h5 "Test case: Known intervals"]
+    [:p [:strong "PPI intervals: "] [:code (pr-str test-intervals)]]
+    [:p [:strong "Expected successive differences: "] [:code "[50, -30, 60, -70]"]]
+    [:p [:strong "RMSSD result: "] (format "%.2f ms" (ppi/windowed-dataset->rmssd test-wd :timestamp 10000))]
+
+    [:h5 "Time window examples:"]
+    [:table
+     [:thead [:tr [:th "Window Size"] [:th "RMSSD (ms)"] [:th "Data Points Used"]]]
+     [:tbody
+      (for [[window-name window-ms] [["3 seconds" 3000] ["5 seconds" 5000] ["10 seconds" 10000]]]
+        (let [window-data (ppi/windowed-dataset->time-window-dataset test-wd :timestamp window-ms)
+              rmssd (ppi/windowed-dataset->rmssd test-wd :timestamp window-ms)]
+          [:tr
+           [:td window-name]
+           [:td (if rmssd (format "%.2f" rmssd) "nil")]
+           [:td (tc/row-count window-data)]]))]]]))
+```
+:::
+
+
+
+```{=html}
+<div><h4>RMSSD Calculation Examples:</h4><h5>Test case: Known intervals</h5><p><strong>PPI intervals: </strong><code>[800 850 820 880 810]</code></p><p><strong>Expected successive differences: </strong><code>[50, -30, 60, -70]</code></p><p><strong>RMSSD result: </strong>54.54 ms</p><h5>Time window examples:</h5><table><thead><tr><th>Window Size</th><th>RMSSD (ms)</th><th>Data Points Used</th></tr></thead><tbody><tr><td>3 seconds</td><td>55.98</td><td>4</td></tr><tr><td>5 seconds</td><td>54.54</td><td>5</td></tr><tr><td>10 seconds</td><td>54.54</td><td>5</td></tr></tbody></table></div>
+```
+
+
+
+### Custom Column Name Example
+
+
+::: {.sourceClojure}
+```clojure
+(let [;; Example with custom column name
+      base-time (java-time/local-date-time 2025 1 1 12 0 0)
+      custom-data [{:timestamp base-time :HeartInterval 800}
+                   {:timestamp (java-time/plus base-time (java-time/millis 1000)) :HeartInterval 850}
+                   {:timestamp (java-time/plus base-time (java-time/millis 2000)) :HeartInterval 820}]
+
+      custom-wd (ppi/make-windowed-dataset {:timestamp :local-date-time :HeartInterval :int32} 5)
+      custom-final-wd (reduce ppi/insert-to-windowed-dataset! custom-wd custom-data)]
+
+  (kind/hiccup
+   [:div
+    [:h5 "Custom column name support:"]
+    [:p "Using column name " [:code ":HeartInterval"] " instead of default " [:code ":PpInMs"]]
+    [:p [:strong "RMSSD: "]
+     (format "%.2f ms"
+             (ppi/windowed-dataset->rmssd custom-final-wd :timestamp 5000 :HeartInterval))]]))
+```
+:::
+
+
+
+```{=html}
+<div><h5>Custom column name support:</h5><p>Using column name <code>:HeartInterval</code> instead of default <code>:PpInMs</code></p><p><strong>RMSSD: </strong>41.23 ms</p></div>
+```
+
+
+
+### Performance Characteristics
+
+
+::: {.sourceClojure}
+```clojure
+(let [;; Create larger dataset for performance demonstration
+      base-time (java-time/local-date-time 2025 1 1 12 0 0)
+      large-intervals (cycle [800 820 790 830 810 840 795 825 815 805])
+      large-data (map (fn [i interval]
+                        {:timestamp (java-time/plus base-time (java-time/millis (* i interval)))
+                         :PpInMs interval})
+                      (range 1000)
+                      (take 1000 large-intervals))
+      large-wd (ppi/make-windowed-dataset {:timestamp :local-date-time :PpInMs :int32} 1200)
+      large-final-wd (reduce ppi/insert-to-windowed-dataset! large-wd large-data)]
+
+  ;; Time the RMSSD calculation
+  (let [start-time (System/nanoTime)
+        rmssd-result (ppi/windowed-dataset->rmssd large-final-wd :timestamp 60000)
+        end-time (System/nanoTime)
+        duration-ms (/ (- end-time start-time) 1000000.0)]
+
+    (kind/hiccup
+     [:div
+      [:h5 "Performance with 1000 data points:"]
+      [:p [:strong "Dataset size: "] "1000 heartbeats"]
+      [:p [:strong "Time window: "] "60 seconds"]
+      [:p [:strong "RMSSD result: "] (format "%.2f ms" rmssd-result)]
+      [:p [:strong "Computation time: "] (format "%.3f ms" duration-ms)]
+      [:p [:em "Uses dtype-next operations for optimal performance"]]])))
+```
+:::
+
+
+
+```{=html}
+<div><h5>Performance with 1000 data points:</h5><p><strong>Dataset size: </strong>1000 heartbeats</p><p><strong>Time window: </strong>60 seconds</p><p><strong>RMSSD result: </strong>27.11 ms</p><p><strong>Computation time: </strong>0.214 ms</p><p><em>Uses dtype-next operations for optimal performance</em></p></div>
+```
+
+
+## `copy-windowed-dataset`
+
+`[{:as windowed-dataset, :keys [dataset column-types max-size current-size current-position]}]`
+
+Create a deep copy of a windowed dataset.
+  
+  **Args:**
+  
+  
+  - `windowed-dataset` - a `WindowedDataset`
+  
+  **Returns:**
+  New `WindowedDataset` with copied data
+
+
+### Example
+
+
+::: {.sourceClojure}
+```clojure
+(let [;; Create and populate a windowed dataset
+      base-time (java-time/local-date-time 2025 1 1 12 0 0)
+      original-data [{:timestamp base-time :PpInMs 800}
+                     {:timestamp (java-time/plus base-time (java-time/millis 1000)) :PpInMs 850}
+                     {:timestamp (java-time/plus base-time (java-time/millis 2000)) :PpInMs 820}]
+
+      wd (ppi/make-windowed-dataset {:timestamp :local-date-time :PpInMs :int32} 5)
+      populated-wd (reduce ppi/insert-to-windowed-dataset! wd original-data)
+
+      ;; Create a deep copy
+      copied-wd (ppi/copy-windowed-dataset populated-wd)]
+
+  (kind/hiccup
+   [:div
+    [:h4 "Deep copy windowed dataset example:"]
+    [:p [:strong "Original dataset state: "]
+     (format "size=%d, position=%d" (:current-size populated-wd) (:current-position populated-wd))]
+    [:p [:strong "Copied dataset state: "]
+     (format "size=%d, position=%d" (:current-size copied-wd) (:current-position copied-wd))]
+    [:p [:strong "Data identical: "]
+     (= (tc/rows (ppi/windowed-dataset->dataset populated-wd))
+        (tc/rows (ppi/windowed-dataset->dataset copied-wd)))]]))
+```
+:::
+
+
+
+```{=html}
+<div><h4>Deep copy windowed dataset example:</h4><p><strong>Original dataset state: </strong>size=3, position=3</p><p><strong>Copied dataset state: </strong>size=3, position=3</p><p><strong>Data identical: </strong>true</p></div>
+```
+
+
+
+## Data Distortion Functions
+
+The following functions simulate realistic artifacts commonly found in HRV data from wearable devices. These are essential for:
+
+- **Algorithm Testing**: Evaluate smoothing and cleaning algorithms against known artifacts
+- **Synthetic Data Generation**: Create realistic test datasets when clean reference data is available
+- **Research Validation**: Compare algorithm performance across different artifact types and severities
+- **Quality Benchmarking**: Establish baseline performance metrics for HRV processing pipelines
+
+Each function can be used independently or combined via `distort-segment` for comprehensive artifact simulation.
+
+## `add-gaussian-noise`
+
+`[data ppi-colname noise-std]`
+
+`[data ppi-colname]`
+
+`[data]`
+
+Add Gaussian (normal) noise to PPI intervals to simulate measurement variability.
+  
+  **Args:**
+  
+  - `data` - Dataset containing PPI intervals
+  - `ppi-colname` - Column name containing PPI intervals (default: :PpInMs) 
+  - `noise-std` - Standard deviation of noise in milliseconds (default: 5.0)
+  
+  **Returns:**
+  Dataset with noisy PPI intervals
+
+
+
+### Example
+
+
+::: {.sourceClojure}
+```clojure
+(let [;; Create clean sample data
+      clean-data (tc/dataset {:PpInMs [800 810 805 815 820]})
+      noisy-data (ppi/add-gaussian-noise clean-data :PpInMs 5.0)]
+
+  (kind/hiccup
+   [:div
+    [:h4 "Gaussian noise example:"]
+    [:p [:strong "Original: "] [:code (pr-str (vec (tc/column clean-data :PpInMs)))]]
+    [:p [:strong "With 5ms noise: "] [:code (pr-str (mapv math/round (tc/column noisy-data :PpInMs)))]]]))
+```
+:::
+
+
+
+```{=html}
+<div><h4>Gaussian noise example:</h4><p><strong>Original: </strong><code>[800 810 805 815 820]</code></p><p><strong>With 5ms noise: </strong><code>[799 807 794 814 827]</code></p></div>
+```
+
+
+## `add-outliers`
+
+`[data ppi-colname outlier-probability outlier-magnitude]`
+
+`[data ppi-colname outlier-probability]`
+
+`[data ppi-colname]`
+
+`[data]`
+
+Add outlier artifacts to simulate sensor malfunctions or movement artifacts.
+  
+  **Args:**
+  
+  - `data` - Dataset containing PPI intervals
+  - `ppi-colname` - Column name containing PPI intervals (default: :PpInMs)
+  - `outlier-probability` - Probability of each sample being an outlier (default: 0.02 = 2%)
+  - `outlier-magnitude` - Multiplier for outlier deviation (default: 3.0)
+  
+  **Returns:**
+  Dataset with outlier artifacts added
+
+
+
+### Example
+
+
+::: {.sourceClojure}
+```clojure
+(let [;; Create clean sample data
+      clean-data (tc/dataset {:PpInMs [800 810 805 815 820]})
+      outlier-data (ppi/add-outliers clean-data :PpInMs 0.4 2.5)] ; High probability for demo
+
+  (kind/hiccup
+   [:div
+    [:h4 "Outlier example:"]
+    [:p [:strong "Original: "] [:code (pr-str (vec (tc/column clean-data :PpInMs)))]]
+    [:p [:strong "With outliers: "] [:code (pr-str (mapv math/round (tc/column outlier-data :PpInMs)))]]]))
+```
+:::
+
+
+
+```{=html}
+<div><h4>Outlier example:</h4><p><strong>Original: </strong><code>[800 810 805 815 820]</code></p><p><strong>With outliers: </strong><code>[800 810 805 815 820]</code></p></div>
+```
+
+
+## `add-missing-beats`
+
+`[data ppi-colname missing-probability]`
+
+`[data ppi-colname]`
+
+`[data]`
+
+Simulate missing heartbeat detections by randomly doubling some intervals.
+  
+  This simulates the common artifact where one heartbeat is missed, causing
+  the next detected interval to be approximately twice as long.
+  
+  **Args:**
+  
+  - `data` - Dataset containing PPI intervals
+  - `ppi-colname` - Column name containing PPI intervals (default: :PpInMs)
+  - `missing-probability` - Probability of missing beat at each position (default: 0.01 = 1%)
+  
+  **Returns:**
+  Dataset with missing beat artifacts (doubled intervals)
+  
+
+
+
+### Example
+
+
+::: {.sourceClojure}
+```clojure
+(let [;; Create clean sample data
+      clean-data (tc/dataset {:PpInMs [800 810 805 815 820]})
+      missing-data (ppi/add-missing-beats clean-data :PpInMs 0.6)] ; High probability for demo
+
+  (kind/hiccup
+   [:div
+    [:h4 "Missing beats example:"]
+    [:p [:strong "Original: "] [:code (pr-str (vec (tc/column clean-data :PpInMs)))]]
+    [:p [:strong "With missing beats: "] [:code (pr-str (mapv int (tc/column missing-data :PpInMs)))]]
+    [:p [:em "Doubled intervals show where beats were \"missed\""]]]))
+```
+:::
+
+
+
+```{=html}
+<div><h4>Missing beats example:</h4><p><strong>Original: </strong><code>[800 810 805 815 820]</code></p><p><strong>With missing beats: </strong><code>[1600 810 1610 815 1640]</code></p><p><em>Doubled intervals show where beats were "missed"</em></p></div>
+```
+
+
+## `add-extra-beats`
+
+`[data ppi-colname extra-probability]`
+
+`[data ppi-colname]`
+
+`[data]`
+
+Simulate false positive heartbeat detections by randomly halving some intervals.
+  
+  This simulates the common artifact where noise is detected as an extra heartbeat,
+  causing one interval to be split into approximately two half-length intervals.
+  
+  **Args:**
+  
+  - `data` - Dataset containing PPI intervals
+  - `ppi-colname` - Column name containing PPI intervals (default: :PpInMs)
+  - `extra-probability` - Probability of extra beat at each position (default: 0.01 = 1%)
+  
+  **Returns:**
+  Dataset with extra beat artifacts (halved intervals followed by normal intervals)
+  
+  **Note:** This function modifies the dataset length by inserting additional rows.
+  
+
+
+
+### Example
+
+
+::: {.sourceClojure}
+```clojure
+(let [;; Create clean sample data
+      clean-data (tc/dataset {:PpInMs [800 810 805 815] :id (range 4)})
+      extra-data (ppi/add-extra-beats clean-data :PpInMs 0.5)] ; High probability for demo
+
+  (kind/hiccup
+   [:div
+    [:h4 "Extra beats example:"]
+    [:p [:strong "Original (4 beats): "] [:code (pr-str (vec (tc/column clean-data :PpInMs)))]]
+    [:p [:strong "With extra beats ("] (tc/row-count extra-data) " beats): "
+     [:code (pr-str (mapv int (tc/column extra-data :PpInMs)))]]
+    [:p [:em "Halved intervals appear where extra beats were inserted"]]]))
+```
+:::
+
+
+
+```{=html}
+<div><h4>Extra beats example:</h4><p><strong>Original (4 beats): </strong><code>[800 810 805 815]</code></p><p><strong>With extra beats (</strong>5 beats): <code>[800 405 405 805 815]</code></p><p><em>Halved intervals appear where extra beats were inserted</em></p></div>
+```
+
+
+## `add-trend-drift`
+
+`[data ppi-colname drift-magnitude drift-direction]`
+
+`[data ppi-colname drift-magnitude]`
+
+`[data ppi-colname]`
+
+`[data]`
+
+Add gradual trend drift to simulate changes in autonomic state during measurement.
+  
+  This simulates the natural drift in heart rate that occurs during longer
+  measurements due to postural changes, breathing patterns, or autonomic shifts.
+  
+  **Args:**
+  
+  - `data` - Dataset containing PPI intervals
+  - `ppi-colname` - Column name containing PPI intervals (default: :PpInMs)
+  - `drift-magnitude` - Maximum drift amount in milliseconds (default: 50.0)
+  - `drift-direction` - Drift direction: :increase, :decrease, or :random (default: :random)
+  
+  **Returns:**
+  Dataset with gradual trend drift added
+  
+
+
+
+### Example
+
+
+::: {.sourceClojure}
+```clojure
+(let [;; Create clean sample data
+      clean-data (tc/dataset {:PpInMs [800 800 800 800 800]})
+      drift-data (ppi/add-trend-drift clean-data :PpInMs 50.0 :increase)]
+
+  (kind/hiccup
+   [:div
+    [:h4 "Trend drift example:"]
+    [:p [:strong "Original: "] [:code (pr-str (vec (tc/column clean-data :PpInMs)))]]
+    [:p [:strong "With 50ms increasing drift: "] [:code (pr-str (mapv math/round (tc/column drift-data :PpInMs)))]]
+    [:p [:em "Gradual increase simulates heart rate slowing over time"]]]))
+```
+:::
+
+
+
+```{=html}
+<div><h4>Trend drift example:</h4><p><strong>Original: </strong><code>[800 800 800 800 800]</code></p><p><strong>With 50ms increasing drift: </strong><code>[800 813 825 838 850]</code></p><p><em>Gradual increase simulates heart rate slowing over time</em></p></div>
+```
+
+
+## `distort-segment`
+
+`[clean-data distortion-params]`
+
+`[clean-data]`
+
+Apply multiple realistic distortions to clean HRV data for algorithm evaluation.
+  
+  Combines multiple types of artifacts commonly seen in real HRV measurements
+  to create realistic test data for evaluating cleaning and smoothing algorithms.
+  
+  **Args:**
+  
+  - `clean-data` - Clean dataset containing PPI intervals
+  - `distortion-params` - Map containing distortion parameters:
+    - `:noise-std` - Gaussian noise standard deviation (ms, default: 3.0)
+    - `:outlier-prob` - Outlier probability (default: 0.015 = 1.5%)
+    - `:outlier-magnitude` - Outlier magnitude multiplier (default: 2.5)
+    - `:missing-prob` - Missing beat probability (default: 0.008 = 0.8%)
+    - `:extra-prob` - Extra beat probability (default: 0.005 = 0.5%)
+    - `:drift-magnitude` - Trend drift magnitude in ms (default: 30.0)
+    - `:ppi-colname` - PPI column name (default: :PpInMs)
+  
+  **Returns:**
+  Dataset with realistic distortions applied
+  
+
+
+
+### Example
+
+
+::: {.sourceClojure}
+```clojure
+(let [;; Create clean sample data
+      clean-data (tc/dataset {:PpInMs [800 800 800 800 800]})
+      distorted-data (ppi/distort-segment clean-data {})] ; Default parameters
+
+  (kind/hiccup
+   [:div
+    [:h4 "Comprehensive distortion example:"]
+    [:p [:strong "Original: "] [:code (pr-str (vec (tc/column clean-data :PpInMs)))]]
+    [:p [:strong "Row count: "] (format "%d → %d" (tc/row-count clean-data) (tc/row-count distorted-data))]
+    [:p [:strong "Distorted: "] [:code (pr-str (mapv math/round (tc/column distorted-data :PpInMs)))]]
+    [:p [:em "Combines noise, outliers, missing/extra beats, and drift"]]]))
+```
+:::
+
+
+
+```{=html}
+<div><h4>Comprehensive distortion example:</h4><p><strong>Original: </strong><code>[800 800 800 800 800]</code></p><p><strong>Row count: </strong>5 → 5</p><p><strong>Distorted: </strong><code>[796 808 815 1616 832]</code></p><p><em>Combines noise, outliers, missing/extra beats, and drift</em></p></div>
+```
+
+
+
+## Smoothing Functions
+
+## `moving-average`
+
+`[windowed-dataset window-size ppi-colname]`
+
+`[windowed-dataset window-size]`
+
+Calculate simple moving average of recent data in windowed dataset.
+  
+  **Args:**
+  
+  - `windowed-dataset` - a `WindowedDataset`
+  - `window-size` - number of recent samples to average
+  - `ppi-colname` - column name containing PPI intervals (default: :PpInMs)
+  
+  **Returns:**
+  Moving average of the most recent window-size samples, or nil if insufficient data
+
+
+### Example
+
+
+::: {.sourceClojure}
+```clojure
+(let [wd (ppi/make-windowed-dataset {:PpInMs :int32} 10)
+      data [{:PpInMs 800} {:PpInMs 850} {:PpInMs 820}]
+      populated-wd (reduce ppi/insert-to-windowed-dataset! wd data)]
+  (double (ppi/moving-average populated-wd 3)))
+```
+:::
+
+
+
+::: {.printedClojure}
+```clojure
+823.3333333333333
+
+```
+:::
+
+
+## `median-filter`
+
+`[windowed-dataset window-size ppi-colname]`
+
+`[windowed-dataset window-size]`
+
+Apply median filter to the most recent data in a windowed dataset.
+  
+  **Args:**
+  
+  - `windowed-dataset` - a `WindowedDataset` 
+  - `window-size` - number of recent samples to use for median calculation
+  - `ppi-colname` - column name containing PPI intervals (default: :PpInMs)
+  
+  **Returns:**
+  Median value of the most recent window-size samples, or nil if insufficient data
+
+
+### Example
+
+
+::: {.sourceClojure}
+```clojure
+(let [wd (ppi/make-windowed-dataset {:PpInMs :int32} 10)
+      data [{:PpInMs 800} {:PpInMs 1200} {:PpInMs 820}] ; middle value is outlier
+      populated-wd (reduce ppi/insert-to-windowed-dataset! wd data)]
+  (ppi/median-filter populated-wd 3))
+```
+:::
+
+
+
+::: {.printedClojure}
+```clojure
+820
+
+```
+:::
+
+
+## `cascaded-median-filter`
+
+`[windowed-dataset ppi-colname]`
+
+`[windowed-dataset]`
+
+Apply cascaded median filters (3-point then 5-point) for robust smoothing.
+  
+  **Args:**
+  
+  - `windowed-dataset` - a `WindowedDataset`
+  - `ppi-colname` - column name containing PPI intervals (default: :PpInMs)
+  
+  **Returns:**
+  Cascaded median filtered value, or nil if insufficient data (needs 5+ samples)
+
+
+### Example
+
+
+::: {.sourceClojure}
+```clojure
+(let [wd (ppi/make-windowed-dataset {:PpInMs :int32} 10)
+      data [{:PpInMs 800} {:PpInMs 1200} {:PpInMs 820} {:PpInMs 1100} {:PpInMs 810}]
+      populated-wd (reduce ppi/insert-to-windowed-dataset! wd data)]
+  (ppi/cascaded-median-filter populated-wd))
+```
+:::
+
+
+
+::: {.printedClojure}
+```clojure
+820
+
+```
+:::
+
+
+## `exponential-moving-average`
+
+`[windowed-dataset alpha ppi-colname]`
+
+`[windowed-dataset alpha]`
+
+Calculate exponential moving average of recent data in windowed dataset.
+  
+  **Args:**
+  
+  - `windowed-dataset` - a `WindowedDataset`
+  - `alpha` - smoothing factor (0 < alpha <= 1, higher = more responsive)
+  - `ppi-colname` - column name containing PPI intervals (default: :PpInMs)
+  
+  **Returns:**
+  EMA value, or nil if no data available
+
+
+### Example
+
+
+::: {.sourceClojure}
+```clojure
+(let [wd (ppi/make-windowed-dataset {:PpInMs :int32} 10)
+      data [{:PpInMs 800} {:PpInMs 850} {:PpInMs 820}]
+      populated-wd (reduce ppi/insert-to-windowed-dataset! wd data)]
+  (ppi/exponential-moving-average populated-wd 0.3))
+```
+:::
+
+
+
+::: {.printedClojure}
+```clojure
+816.5
+
+```
+:::
+
+
+## `cascaded-smoothing-filter`
+
+`[windowed-dataset median-window ma-window ppi-colname]`
+
+`[windowed-dataset median-window ma-window]`
+
+`[windowed-dataset]`
+
+Apply cascaded smoothing: median filter followed by moving average.
+  
+  This combines the outlier-removal power of median filtering with the 
+  noise-reduction benefits of moving averages for comprehensive cleaning.
+  
+  **Args:**
+  
+  - `windowed-dataset` - a `WindowedDataset`
+  - `median-window` - window size for median filter (default: 5)
+  - `ma-window` - window size for moving average (default: 3)
+  - `ppi-colname` - column name containing PPI intervals (default: :PpInMs)
+  
+  **Returns:**
+  Final smoothed value, or nil if insufficient data
+
+
+### Example
+
+
+::: {.sourceClojure}
+```clojure
+(let [wd (ppi/make-windowed-dataset {:PpInMs :int32} 15)
+      ;; Data with noise and outliers
+      data [{:PpInMs 800} {:PpInMs 820} {:PpInMs 1500} {:PpInMs 810}
+            {:PpInMs 805} {:PpInMs 815} {:PpInMs 2000} {:PpInMs 812}
+            {:PpInMs 808} {:PpInMs 795}]
+      populated-wd (reduce ppi/insert-to-windowed-dataset! wd data)]
+
+  ;; Compare cascaded smoothing with individual methods
+  {:median-only (ppi/median-filter populated-wd 5)
+   :moving-avg-only (ppi/moving-average populated-wd 5)
+   :cascaded-5-3 (ppi/cascaded-smoothing-filter populated-wd 5 3)
+   :cascaded-default (ppi/cascaded-smoothing-filter populated-wd)})
+```
+:::
+
+
+
+::: {.printedClojure}
+```clojure
+{:median-only 812,
+ :moving-avg-only 1046,
+ :cascaded-5-3 805.0,
+ :cascaded-default 805.0}
+
+```
+:::
+
+
+## `add-column-by-windowed-fn`
+
+`[time-series {:keys [colname windowed-fn windowed-dataset-size]}]`
+
+Add a new column to a time-series by applying a windowed function progressively.
+  
+  This function simulates real-time streaming analysis on historical time-series data.
+  For each row in the time-series (processed in timestamp order), it:
+
+  1. Inserts the row into a growing windowed dataset
+  2. Applies the windowed function to calculate a result  
+  3. Uses that result as the column value for that row
+  
+  This bridges the gap between streaming windowed analysis and batch processing
+  of existing time-series data, allowing you to see how metrics evolve over time
+  as if the data were being processed in real-time.
+  
+  **Args:**
+
+  - `time-series` - a tablecloth dataset with timestamp-ordered data
+  - `options` - map with keys:
+    - `:colname` - name of the new column to add
+    - `:windowed-fn` - function that takes a WindowedDataset and returns a value
+    - `:windowed-dataset-size` - size of the windowed dataset buffer (currently ignored, uses 120)
+  
+  **Returns:**
+  The original time-series with the new column added, where each row contains
+  the result of applying the windowed function to all data up to that timestamp
+  
+ 
+  **Use Cases:**
+
+  - Adding progressive HRV metrics (RMSSD, moving averages) to time-series
+  - Creating trend analysis columns that consider historical context
+  - Simulating real-time algorithm behavior on historical data
+  - Generating training data with progressive features for ML models
+
+
+### Examples
+
+
+::: {.sourceClojure}
+```clojure
+(let [time-series (tc/dataset {:timestamp [(java-time/local-date-time 2025 1 1 12 0 0)
+                                           (java-time/local-date-time 2025 1 1 12 0 1)
+                                           (java-time/local-date-time 2025 1 1 12 0 2)
+                                           (java-time/local-date-time 2025 1 1 12 0 3)]
+                               :PpInMs [800 850 820 880]})
+      result (ppi/add-column-by-windowed-fn time-series
+                                            {:colname :MovingAvg3
+                                             :windowed-fn #(ppi/moving-average % 3)
+                                             :windowed-dataset-size 10})]
+  (tc/select-columns result [:timestamp :PpInMs :MovingAvg3]))
+```
+:::
+
+
+::: {.clay-dataset}
+_unnamed [4 3]:
+
+|          :timestamp | :PpInMs | :MovingAvg3 |
+|---------------------|--------:|-------------|
+|    2025-01-01T12:00 |     800 |             |
+| 2025-01-01T12:00:01 |     850 |             |
+| 2025-01-01T12:00:02 |     820 |             |
+| 2025-01-01T12:00:03 |     880 |       823.3 |
+
+
+:::
+
+
+
+### RMSSD Example
+
+
+::: {.sourceClojure}
+```clojure
+(let [hrv-data (let [base-time (java-time/local-date-time 2025 1 1 12 0 0)]
+                 (tc/dataset {:timestamp (map #(java-time/plus base-time (java-time/millis (* % 800)))
+                                              (range 5))
+                              :PpInMs [800 850 820 880 810]}))
+      result (ppi/add-column-by-windowed-fn hrv-data
+                                            {:colname :RMSSD
+                                             :windowed-fn #(ppi/windowed-dataset->rmssd % :timestamp 5000)
+                                             :windowed-dataset-size 120})]
+  (tc/tail result 3))
+```
+:::
+
+
+::: {.clay-dataset}
+_unnamed [3 3]:
+
+|              :timestamp | :PpInMs |      :RMSSD |
+|-------------------------|--------:|------------:|
+| 2025-01-01T12:00:01.600 |     820 | 50.00000000 |
+| 2025-01-01T12:00:02.400 |     880 | 41.23105626 |
+| 2025-01-01T12:00:03.200 |     810 | 48.30458915 |
+
+
+:::
+
+
+
+```{=html}
+<div style="background-color:grey;height:2px;width:100%;"></div>
+```
+
+
+
+```{=html}
+<div><pre><small><small>source: notebooks/ppi_docs/api_reference.clj</small></small></pre></div>
+```
