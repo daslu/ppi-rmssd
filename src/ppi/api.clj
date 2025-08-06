@@ -494,4 +494,56 @@
               filtered-indices (subvec (vec indices) start-pos)]
           (ds/select-rows dataset filtered-indices))))))
 
+(defn windowed-dataset->rmssd
+  "Compute RMSSD (Root Mean Square of Successive Differences) from a windowed dataset
+  over a specified time window.
+  
+  RMSSD is a time-domain Heart Rate Variability measure that quantifies the 
+  short-term variability in pulse-to-pulse intervals by calculating the root 
+  mean square of the differences between successive intervals.
+  
+  **Args:**
+  - `windowed-dataset` - a `WindowedDataset` containing PPI data
+  - `timestamp-colname` - the name of the column that contains timestamps  
+  - `time-window` - window length in ms (from most recent timestamp backwards)
+  - `ppi-colname` - column name containing pulse-to-pulse intervals (default: :PpInMs)
+  
+  **Returns:**
+  RMSSD value in milliseconds, or nil if insufficient data (< 2 intervals)
+  
+  **Performance:** O(log n) time complexity using binary search for time window extraction,
+  with high-performance dtype-next operations for RMSSD calculation"
+  ([windowed-dataset timestamp-colname time-window]
+   (windowed-dataset->rmssd windowed-dataset timestamp-colname time-window :PpInMs))
+  ([windowed-dataset timestamp-colname time-window ppi-colname]
+   (let [time-window-data (windowed-dataset->time-window-dataset windowed-dataset
+                                                                 timestamp-colname
+                                                                 time-window)]
+     (when (>= (tc/row-count time-window-data) 2)
+       ;; Check if the PPI column exists before trying to access it
+       (when (contains? (set (tc/column-names time-window-data)) ppi-colname)
+         (let [ppi-values (tc/column time-window-data ppi-colname)]
+           (when (and ppi-values (>= (count ppi-values) 2))
+             ;; Use dtype-next operations for high-performance calculation
+             (let [;; Convert to dtype array for efficient operations
+                   ppi-array (dtype/->reader ppi-values :float64)
+                   n (dtype/ecount ppi-array)]
+               (when (>= n 2)
+                 ;; Calculate successive differences using dtype-next shift operation
+                 ;; This creates: [x1-x0, x2-x1, ..., xn-x(n-1)]
+                 (let [current-vals (dtype/sub-buffer ppi-array 1 (dec n)) ; [x1, x2, ..., xn]
+                       prev-vals (dtype/sub-buffer ppi-array 0 (dec n)) ; [x0, x1, ..., x(n-1)]
+                       ;; Calculate differences: current - previous
+                       diffs (dfn/- current-vals prev-vals)
+                       ;; Square the differences
+                       squared-diffs (dfn/sq diffs)
+                       ;; Calculate mean of squared differences
+                       mean-squared (dfn/mean squared-diffs)
+                       ;; Return root mean square
+                       rmssd (Math/sqrt mean-squared)]
+                   rmssd))))))))))
+
+
+
+
 

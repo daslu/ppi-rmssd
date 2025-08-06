@@ -1115,5 +1115,142 @@
             ;; Should always include the most recent point
             (t/is (= 999 (last (tc/column result :value))))))))))
 
+(t/deftest windowed-dataset->rmssd-test
+  (t/testing "computes RMSSD correctly with known data"
+    (let [base-time (java-time/local-date-time 2025 8 6 10 0 0)
+          ;; Test with simple known values: [800, 850, 820, 880, 810]
+          ;; Successive differences: [50, -30, 60, -70]
+          ;; Squared differences: [2500, 900, 3600, 4900] 
+          ;; Mean: 2975, RMSSD: sqrt(2975) ≈ 54.54
+          test-data (map (fn [i ppi-interval]
+                           {:timestamp (java-time/plus base-time (java-time/millis (* i 1000)))
+                            :PpInMs ppi-interval})
+                         (range 5)
+                         [800 850 820 880 810])
+          wd (sut/make-windowed-dataset {:timestamp :local-date-time :PpInMs :int32} 10)
+          final-wd (reduce sut/insert-to-windowed-dataset! wd test-data)]
+
+      (t/testing "full dataset RMSSD calculation"
+        (let [rmssd (sut/windowed-dataset->rmssd final-wd :timestamp 5000)]
+          (t/is (not (nil? rmssd)))
+          (t/is (< (Math/abs (- rmssd 54.543560573178574)) 1e-10)))) ; Within floating point precision
+
+      (t/testing "partial dataset RMSSD (last 3 intervals: 820, 880, 810)"
+        ;; Successive differences: [60, -70], squared: [3600, 4900], mean: 4250, RMSSD: sqrt(4250) ≈ 65.19
+        (let [rmssd (sut/windowed-dataset->rmssd final-wd :timestamp 2000)]
+          (t/is (not (nil? rmssd)))
+          (t/is (< (Math/abs (- rmssd 65.19202405202648)) 1e-10))))))
+
+  (t/testing "handles edge cases gracefully"
+    (let [base-time (java-time/local-date-time 2025 8 6 10 0 0)
+          wd (sut/make-windowed-dataset {:timestamp :local-date-time :PpInMs :int32} 5)]
+
+      (t/testing "empty dataset returns nil"
+        (let [rmssd (sut/windowed-dataset->rmssd wd :timestamp 5000)]
+          (t/is (nil? rmssd))))
+
+      (t/testing "single data point returns nil"
+        (let [wd-single (sut/insert-to-windowed-dataset! wd {:timestamp base-time :PpInMs 800})
+              rmssd (sut/windowed-dataset->rmssd wd-single :timestamp 5000)]
+          (t/is (nil? rmssd))))
+
+      (t/testing "two data points can compute RMSSD"
+        (let [test-data [{:timestamp base-time :PpInMs 800}
+                         {:timestamp (java-time/plus base-time (java-time/millis 1000)) :PpInMs 850}]
+              wd-two (reduce sut/insert-to-windowed-dataset! wd test-data)
+              rmssd (sut/windowed-dataset->rmssd wd-two :timestamp 2000)]
+          ;; Single difference: 50, squared: 2500, RMSSD: 50.0
+          (t/is (not (nil? rmssd)))
+          (t/is (= 50.0 rmssd))))
+
+      (t/testing "zero time window returns nil"
+        (let [wd-with-data (sut/insert-to-windowed-dataset! wd {:timestamp base-time :PpInMs 800})
+              rmssd (sut/windowed-dataset->rmssd wd-with-data :timestamp 0)]
+          (t/is (nil? rmssd))))
+
+      (t/testing "negative time window returns nil"
+        (let [wd-with-data (sut/insert-to-windowed-dataset! wd {:timestamp base-time :PpInMs 800})
+              rmssd (sut/windowed-dataset->rmssd wd-with-data :timestamp -1000)]
+          (t/is (nil? rmssd))))))
+
+  (t/testing "supports custom PPI column names"
+    (let [base-time (java-time/local-date-time 2025 8 6 10 0 0)
+          ;; Test with custom column name
+          test-data (map (fn [i interval]
+                           {:timestamp (java-time/plus base-time (java-time/millis (* i 1000)))
+                            :HeartBeatInterval interval})
+                         (range 3)
+                         [800 850 820])
+          wd (sut/make-windowed-dataset {:timestamp :local-date-time :HeartBeatInterval :int32} 5)
+          final-wd (reduce sut/insert-to-windowed-dataset! wd test-data)]
+
+      (t/testing "default :PpInMs column not found returns nil"
+        (let [rmssd (sut/windowed-dataset->rmssd final-wd :timestamp 5000)]
+          (t/is (nil? rmssd))))
+
+      (t/testing "custom column name works correctly"
+        (let [rmssd (sut/windowed-dataset->rmssd final-wd :timestamp 5000 :HeartBeatInterval)]
+          ;; Differences: [50, -30], squared: [2500, 900], mean: 1700, RMSSD: sqrt(1700) ≈ 41.23
+          (t/is (not (nil? rmssd)))
+          (t/is (< (Math/abs (- rmssd 41.23105625617661)) 1e-10))))))
+
+  (t/testing "realistic HRV scenario with varying intervals"
+    (let [base-time (java-time/local-date-time 2025 8 6 10 0 0)
+          ;; Simulate realistic heart rate variability - 60 seconds of data
+          ;; Average ~75 BPM with natural variation
+          realistic-intervals (cycle [800 820 790 830 810 840 795 825 815 805])
+          hrv-data (map (fn [i interval]
+                          {:timestamp (java-time/plus base-time (java-time/millis (* i interval)))
+                           :PpInMs interval})
+                        (range 60)
+                        (take 60 realistic-intervals))
+          wd (sut/make-windowed-dataset {:timestamp :local-date-time :PpInMs :int32} 100)
+          hrv-wd (reduce sut/insert-to-windowed-dataset! wd hrv-data)]
+
+      (t/testing "30-second window RMSSD computation"
+        (let [rmssd (sut/windowed-dataset->rmssd hrv-wd :timestamp 30000)]
+          (t/is (not (nil? rmssd)))
+          (t/is (> rmssd 0))
+          (t/is (< rmssd 100)))) ; Reasonable HRV range
+
+      (t/testing "60-second window includes all data"
+        (let [rmssd-60 (sut/windowed-dataset->rmssd hrv-wd :timestamp 60000)
+              rmssd-all (sut/windowed-dataset->rmssd hrv-wd :timestamp 120000)] ; Window larger than data
+          (t/is (not (nil? rmssd-60)))
+          (t/is (not (nil? rmssd-all)))
+          ;; Should be approximately equal since both capture all data
+          (t/is (< (Math/abs (- rmssd-60 rmssd-all)) 1e-10))))))
+
+  (t/testing "handles identical successive intervals"
+    (let [base-time (java-time/local-date-time 2025 8 6 10 0 0)
+          ;; All intervals the same - should result in RMSSD of 0
+          identical-data (map (fn [i]
+                                {:timestamp (java-time/plus base-time (java-time/millis (* i 1000)))
+                                 :PpInMs 800})
+                              (range 5))
+          wd (sut/make-windowed-dataset {:timestamp :local-date-time :PpInMs :int32} 10)
+          identical-wd (reduce sut/insert-to-windowed-dataset! wd identical-data)]
+
+      (t/testing "identical intervals result in RMSSD of 0"
+        (let [rmssd (sut/windowed-dataset->rmssd identical-wd :timestamp 5000)]
+          (t/is (not (nil? rmssd)))
+          (t/is (= 0.0 rmssd))))))
+
+  (t/testing "error handling"
+    (let [base-time (java-time/local-date-time 2025 8 6 10 0 0)
+          test-data [{:timestamp base-time :PpInMs 800}
+                     {:timestamp (java-time/plus base-time (java-time/millis 1000)) :PpInMs 850}]
+          wd (sut/make-windowed-dataset {:timestamp :local-date-time :PpInMs :int32} 5)
+          wd-with-data (reduce sut/insert-to-windowed-dataset! wd test-data)]
+
+      (t/testing "non-existent timestamp column throws exception"
+        (t/is (thrown? IllegalArgumentException
+                       (sut/windowed-dataset->rmssd wd-with-data :nonexistent 2000))))
+
+      (t/testing "non-existent PPI column returns nil"
+        (let [rmssd (sut/windowed-dataset->rmssd wd-with-data :timestamp 2000 :nonexistent)]
+          (t/is (nil? rmssd)))))))
+
+
 
 
