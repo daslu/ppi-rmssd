@@ -186,3 +186,318 @@
     (t/is (= "only,commas" (sut/standardize-csv-line "only,commas")))
     (t/is (= "single\"quote" (sut/standardize-csv-line "single\"quote")))))
 
+(t/deftest standardize-csv-line-comprehensive-test
+  (t/testing "handles nested quote patterns"
+    (t/is (= "field1,\"nested\"quotes,field3"
+             (sut/standardize-csv-line "\"field1,\"\"nested\"\"quotes,field3\""))))
+
+  (t/testing "handles multiple quadruple quote sequences"
+    (t/is (= "\"\"start,middle,end\"\""
+             (sut/standardize-csv-line "\"\"\"\"start,\"\"\"\"middle,\"\"\"\"end\"\"\"\""))))
+
+  (t/testing "preserves single quotes when appropriate"
+    (t/is (= "field1,\"single,field3"
+             (sut/standardize-csv-line "field1,\"single,field3"))))
+
+  (t/testing "handles mixed quote patterns in single line"
+    (t/is (= "\"\"start,middle,end"
+             (sut/standardize-csv-line "\"\"\"\"start,\"\"\"\"middle,\"\"\"\"end\""))))
+
+  (t/testing "preserves content without leading/trailing quotes"
+    (t/is (= "normal,csv,content"
+             (sut/standardize-csv-line "normal,csv,content")))))
+
+(t/deftest prepare-raw-data-comprehensive-test
+  (t/testing "handles various column name transformations"
+    (let [raw-data (tc/dataset {"prefix-Device UUID" ["device1"]
+                                "prefix-Another Column Name" ["value1"]
+                                "prefix-PpInMs" ["1,000"]
+                                "prefix-PpErrorEstimate" ["50"]})
+          result (sut/prepare-raw-data raw-data "prefix-")]
+
+      (t/is (= #{:Device-UUID :Another-Column-Name :PpInMs :PpErrorEstimate}
+               (set (tc/column-names result))))))
+
+  (t/testing "handles large numeric values with commas"
+    (let [raw-data (tc/dataset {"prefix-PpInMs" ["1,234,567"]
+                                "prefix-PpErrorEstimate" ["9,876"]})
+          result (sut/prepare-raw-data raw-data "prefix-")]
+
+      (t/is (= [1234567] (tc/column result :PpInMs)))
+      (t/is (= [9876] (tc/column result :PpErrorEstimate)))))
+
+  (t/testing "preserves other column types unchanged"
+    (let [raw-data (tc/dataset {"prefix-Device-UUID" ["uuid123"]
+                                "prefix-Status" ["active"]
+                                "prefix-PpInMs" ["800"]
+                                "prefix-PpErrorEstimate" ["10"]})
+          result (sut/prepare-raw-data raw-data "prefix-")]
+
+      (t/is (= ["uuid123"] (tc/column result :Device-UUID)))
+      (t/is (= ["active"] (tc/column result :Status)))))
+
+  (t/testing "handles empty prefix"
+    (let [raw-data (tc/dataset {"Device UUID" ["device1"]
+                                "PpInMs" ["800"]
+                                "PpErrorEstimate" ["10"]})
+          result (sut/prepare-raw-data raw-data "")]
+
+      (t/is (= #{:Device-UUID :PpInMs :PpErrorEstimate}
+               (set (tc/column-names result))))))
+
+  (t/testing "handles mixed case column names"
+    (let [raw-data (tc/dataset {"PREFIX-device uuid" ["device1"]
+                                "PREFIX-PpInMs" ["800"]
+                                "PREFIX-PpErrorEstimate" ["10"]})
+          result (sut/prepare-raw-data raw-data "PREFIX-")]
+
+      (t/is (= #{:device-uuid :PpInMs :PpErrorEstimate}
+               (set (tc/column-names result)))))))
+
+(t/deftest filter-recent-data-comprehensive-test
+  (t/testing "handles exact cutoff date boundary"
+    (let [cutoff-date (java-time/local-date-time 2025 3 1 10 0)
+          test-data (tc/dataset {:Device-UUID ["device1" "device1" "device1"]
+                                 :Client-Timestamp [cutoff-date
+                                                    (java-time/plus cutoff-date (java-time/seconds 1))
+                                                    (java-time/minus cutoff-date (java-time/seconds 1))]
+                                 :PpInMs [800 850 750]})
+
+          result (sut/filter-recent-data test-data cutoff-date)]
+
+      (t/is (= 1 (tc/row-count result)))
+      (t/is (= [850] (tc/column result :PpInMs)))))
+
+  (t/testing "handles multiple devices with different date ranges"
+    (let [cutoff-date (java-time/local-date-time 2025 3 1 10 0)
+          test-data (tc/dataset {:Device-UUID ["device1" "device1" "device2" "device2"]
+                                 :Client-Timestamp [(java-time/plus cutoff-date (java-time/days 1))
+                                                    (java-time/minus cutoff-date (java-time/days 1))
+                                                    (java-time/plus cutoff-date (java-time/days 2))
+                                                    (java-time/plus cutoff-date (java-time/days 3))]
+                                 :PpInMs [800 750 850 900]})
+
+          result (sut/filter-recent-data test-data cutoff-date)]
+
+      (t/is (= 3 (tc/row-count result)))
+      (t/is (= [800 850 900] (tc/column result :PpInMs)))))
+
+  (t/testing "returns empty dataset when all dates are before cutoff"
+    (let [cutoff-date (java-time/local-date-time 2025 6 1 10 0)
+          test-data (tc/dataset {:Device-UUID ["device1" "device1"]
+                                 :Client-Timestamp [(java-time/local-date-time 2025 1 1 10 0)
+                                                    (java-time/local-date-time 2025 2 1 10 0)]
+                                 :PpInMs [800 750]})
+
+          result (sut/filter-recent-data test-data cutoff-date)]
+
+      (t/is (= 0 (tc/row-count result)))))
+
+  (t/testing "preserves all columns in filtered result"
+    (let [cutoff-date (java-time/local-date-time 2025 3 1 10 0)
+          test-data (tc/dataset {:Device-UUID ["device1"]
+                                 :Client-Timestamp [(java-time/plus cutoff-date (java-time/days 1))]
+                                 :PpInMs [800]
+                                 :Extra-Column ["extra-value"]})
+
+          result (sut/filter-recent-data test-data cutoff-date)]
+
+      (t/is (= #{:Device-UUID :Client-Timestamp :PpInMs :Extra-Column}
+               (set (tc/column-names result))))
+      (t/is (= ["extra-value"] (tc/column result :Extra-Column))))))
+
+(t/deftest add-timestamps-comprehensive-test
+  (t/testing "handles multiple devices independently"
+    (let [base-time1 (java-time/local-date-time 2025 5 1 10 0)
+          base-time2 (java-time/local-date-time 2025 5 2 15 30)
+          test-data (tc/dataset {:Device-UUID ["device1" "device1" "device2" "device2"]
+                                 :Client-Timestamp [base-time1 base-time1 base-time2 base-time2]
+                                 :PpInMs [1000 800 500 600]})
+
+          result (sut/add-timestamps test-data)
+          device1-rows (tc/select-rows result #(= (:Device-UUID %) "device1"))
+          device2-rows (tc/select-rows result #(= (:Device-UUID %) "device2"))]
+
+      (t/testing "device1 accumulation"
+        (t/is (= [1000 1800] (tc/column device1-rows :accumulated-pp))))
+
+      (t/testing "device2 accumulation starts fresh"
+        (t/is (= [500 1100] (tc/column device2-rows :accumulated-pp))))))
+
+  (t/testing "handles different client timestamps for same device"
+    (let [base-time1 (java-time/local-date-time 2025 5 1 10 0)
+          base-time2 (java-time/local-date-time 2025 5 1 11 0) ; 1 hour later
+          test-data (tc/dataset {:Device-UUID ["device1" "device1" "device1" "device1"]
+                                 :Client-Timestamp [base-time1 base-time1 base-time2 base-time2]
+                                 :PpInMs [1000 800 500 600]})
+
+          result (sut/add-timestamps test-data)]
+
+      (t/testing "separate accumulation per client timestamp"
+        (t/is (= [1000 1800 500 1100] (tc/column result :accumulated-pp))))))
+
+  (t/testing "handles zero and negative intervals"
+    (let [base-time (java-time/local-date-time 2025 5 1 10 0)
+          test-data (tc/dataset {:Device-UUID ["device1" "device1" "device1"]
+                                 :Client-Timestamp [base-time base-time base-time]
+                                 :PpInMs [0 -100 500]}) ; Including negative value
+
+          result (sut/add-timestamps test-data)]
+
+      (t/is (= [0 -100 400] (tc/column result :accumulated-pp)))))
+
+  (t/testing "preserves original columns and adds new ones"
+    (let [base-time (java-time/local-date-time 2025 5 1 10 0)
+          test-data (tc/dataset {:Device-UUID ["device1"]
+                                 :Client-Timestamp [base-time]
+                                 :PpInMs [1000]
+                                 :Extra-Data ["extra"]})
+
+          result (sut/add-timestamps test-data)]
+
+      (t/is (= #{:Device-UUID :Client-Timestamp :PpInMs :Extra-Data :accumulated-pp :timestamp}
+               (set (tc/column-names result))))
+      (t/is (= ["extra"] (tc/column result :Extra-Data))))))
+
+(t/deftest recognize-jumps-comprehensive-test
+  (t/testing "handles various jump thresholds"
+    (let [base-time (java-time/local-date-time 2025 5 1 10 0)
+          timestamps [(java-time/plus base-time (java-time/millis 0))
+                      (java-time/plus base-time (java-time/millis 1000)) ; 1s gap
+                      (java-time/plus base-time (java-time/millis 4000)) ; 3s gap
+                      (java-time/plus base-time (java-time/millis 10000))] ; 6s gap
+
+          test-data (tc/dataset {:Device-UUID ["device1" "device1" "device1" "device1"]
+                                 :timestamp timestamps})]
+
+      (t/testing "low threshold detects more jumps"
+        (let [result (sut/recognize-jumps test-data {:jump-threshold 2000})]
+          (t/is (= [0 0 1 1] (tc/column result :jump)))
+          (t/is (= [0 0 1 2] (tc/column result :jump-count)))))
+
+      (t/testing "high threshold detects fewer jumps"
+        (let [result (sut/recognize-jumps test-data {:jump-threshold 5000})]
+          (t/is (= [0 0 0 1] (tc/column result :jump)))
+          (t/is (= [0 0 0 1] (tc/column result :jump-count)))))))
+
+  (t/testing "handles complex multi-device scenarios"
+    (let [base-time (java-time/local-date-time 2025 5 1 10 0)
+          test-data (tc/dataset {:Device-UUID ["device1" "device1" "device1" "device2" "device2" "device3"]
+                                 :timestamp [(java-time/plus base-time (java-time/millis 0))
+                                             (java-time/plus base-time (java-time/millis 1000))
+                                             (java-time/plus base-time (java-time/millis 8000)) ; jump
+                                             (java-time/plus base-time (java-time/millis 0)) ; device2 starts
+                                             (java-time/plus base-time (java-time/millis 7000)) ; jump  
+                                             (java-time/plus base-time (java-time/millis 0))]}) ; device3, single point
+
+          result (sut/recognize-jumps test-data {:jump-threshold 5000})]
+
+      (t/is (= 6 (tc/row-count result)))
+      (t/is (= [0 0 1 0 1 0] (tc/column result :jump)))
+      (t/is (= [0 0 1 0 1 0] (tc/column result :jump-count)))))
+
+  (t/testing "handles edge case timestamps"
+    (let [base-time (java-time/local-date-time 2025 5 1 10 0)
+          test-data (tc/dataset {:Device-UUID ["device1" "device1" "device1"]
+                                 :timestamp [base-time
+                                             base-time ; Identical timestamp (0ms gap)
+                                             (java-time/plus base-time (java-time/millis 10000))]}) ; Big jump
+
+          result (sut/recognize-jumps test-data {:jump-threshold 5000})]
+
+      (t/is (= [0 0 1] (tc/column result :jump)))))
+
+  (t/testing "preserves row order after processing"
+    (let [base-time (java-time/local-date-time 2025 5 1 10 0)
+          test-data (tc/dataset {:Device-UUID ["device1" "device1" "device1"]
+                                 :timestamp [(java-time/plus base-time (java-time/millis 0))
+                                             (java-time/plus base-time (java-time/millis 1000))
+                                             (java-time/plus base-time (java-time/millis 2000))]
+                                 :Original-Order [1 2 3]})
+
+          result (sut/recognize-jumps test-data {:jump-threshold 5000})]
+
+      (t/is (= [1 2 3] (tc/column result :Original-Order)))))
+
+  (t/testing "handles very large time differences"
+    (let [base-time (java-time/local-date-time 2025 5 1 10 0)
+          huge-gap (java-time/plus base-time (java-time/days 30)) ; 30 day gap
+          test-data (tc/dataset {:Device-UUID ["device1" "device1"]
+                                 :timestamp [base-time huge-gap]})
+
+          result (sut/recognize-jumps test-data {:jump-threshold 86400000})] ; 1 day threshold
+
+      (t/is (= [0 1] (tc/column result :jump))))))
+
+(t/deftest integration-test-fixed
+  (t/testing "partial pipeline integration"
+    (let [raw-data (tc/dataset {"prefix-Device-UUID" ["device1" "device1" "device1"]
+                                "prefix-PpInMs" ["1,000" "800" "1,200"]
+                                "prefix-PpErrorEstimate" ["50" "30" "40"]})]
+
+      (let [prepared-data (sut/prepare-raw-data raw-data "prefix-")]
+
+        (t/is (= 3 (tc/row-count prepared-data)))
+        (t/is (contains? (set (tc/column-names prepared-data)) :Device-UUID))
+        (t/is (contains? (set (tc/column-names prepared-data)) :PpInMs))
+        (t/is (contains? (set (tc/column-names prepared-data)) :PpErrorEstimate))
+        (t/is (= [1000 800 1200] (tc/column prepared-data :PpInMs)))
+        (t/is (= [50 30 40] (tc/column prepared-data :PpErrorEstimate))))))
+
+  (t/testing "timestamp processing pipeline"
+    (let [base-time (java-time/local-date-time 2025 5 1 10 0)
+          prepared-data (tc/dataset {:Device-UUID ["device1" "device1"]
+                                     :Client-Timestamp [base-time base-time]
+                                     :PpInMs [1000 800]})]
+
+      (let [with-timestamps (sut/add-timestamps prepared-data)
+            with-jumps (sut/recognize-jumps with-timestamps {:jump-threshold 5000})]
+
+        (t/is (= 2 (tc/row-count with-jumps)))
+        (t/is (contains? (set (tc/column-names with-jumps)) :timestamp))
+        (t/is (contains? (set (tc/column-names with-jumps)) :jump))
+        (t/is (= [1000 1800] (tc/column with-timestamps :accumulated-pp)))))))
+
+(t/deftest error-handling-and-validation-test
+  (t/testing "prepare-raw-data handles missing columns gracefully"
+    (let [data-without-pp (tc/dataset {"prefix-Device-UUID" ["device1"]
+                                       "prefix-Other-Field" ["value1"]})]
+      (t/is (thrown? Exception (sut/prepare-raw-data data-without-pp "prefix-")))))
+
+  (t/testing "filter-recent-data handles nil timestamps"
+    (let [data-with-nil (tc/dataset {:Device-UUID ["device1" "device1"]
+                                     :Client-Timestamp [nil (java-time/local-date-time 2025 5 1)]})
+          cutoff-date (java-time/local-date-time 2025 1 1)]
+
+      (t/is (thrown? Exception (sut/filter-recent-data data-with-nil cutoff-date)))))
+
+  (t/testing "recognize-jumps handles missing timestamp column gracefully"
+    (let [data-without-timestamps (tc/dataset {:Device-UUID ["device1"]
+                                               :PpInMs [800]})
+          result (sut/recognize-jumps data-without-timestamps {:jump-threshold 5000})]
+
+      (t/is (= 1 (tc/row-count result)))
+      (t/is (= [0] (tc/column result :delta-timestamp)))))
+
+  (t/testing "standardize-csv-line handles null input"
+    (t/is (thrown? Exception (sut/standardize-csv-line nil))))
+
+  (t/testing "functions handle malformed numeric data"
+    (let [bad-numeric-data (tc/dataset {"prefix-PpInMs" ["not-a-number"]
+                                        "prefix-PpErrorEstimate" ["also-not-a-number"]})]
+
+      (t/is (thrown? Exception (sut/prepare-raw-data bad-numeric-data "prefix-"))))))
+
+(t/deftest performance-and-scale-test-simple
+  (t/testing "handles moderately sized datasets"
+    (let [dataset-size 100
+          base-time (java-time/local-date-time 2025 5 1 10 0)
+          timestamps (repeatedly dataset-size #(java-time/plus base-time (java-time/millis (* 1000 (rand-int 60)))))
+
+          test-data (tc/dataset {:Device-UUID (repeat dataset-size "device1")
+                                 :timestamp timestamps})]
+
+      (let [result (sut/recognize-jumps test-data {:jump-threshold 5000})]
+        (t/is (= dataset-size (tc/row-count result)))
+        (t/is (every? number? (tc/column result :delta-timestamp)))))))
+
