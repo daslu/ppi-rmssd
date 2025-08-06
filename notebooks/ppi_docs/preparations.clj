@@ -270,16 +270,16 @@
 ;; Here we prepare the main dataset to be used in this project.
 ;; 
 
-(def continuous-pp-data
+(def continuous-ppi-data
   (let [params {:jump-threshold 5000}]
     (-> data-with-timestamps
         (tc/select-columns [:Device-UUID :timestamp :PpErrorEstimate]))))
 
-continuous-pp-data
+continuous-ppi-data
 
-(def continuous-csv-path "data/continuous-pp.csv.gz")
+(def continuous-csv-path "data/continuous-ppi.csv.gz")
 
 (when-not (fs/exists? continuous-csv-path)
-  (tc/write! continuous-pp-data continuous-csv-path))
+  (tc/write! continuous-ppi-data continuous-csv-path))
 
 
