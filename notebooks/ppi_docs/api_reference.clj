@@ -692,4 +692,31 @@
       populated-wd (reduce ppi/insert-to-windowed-dataset! wd data)]
   (ppi/exponential-moving-average populated-wd 0.3))
 
+(include-fnvar-as-section #'ppi/add-column-by-windowed-fn)
+
+;; ### Examples
+
+(let [time-series (tc/dataset {:timestamp [(java-time/local-date-time 2025 1 1 12 0 0)
+                                           (java-time/local-date-time 2025 1 1 12 0 1)
+                                           (java-time/local-date-time 2025 1 1 12 0 2)
+                                           (java-time/local-date-time 2025 1 1 12 0 3)]
+                               :PpInMs [800 850 820 880]})
+      result (ppi/add-column-by-windowed-fn time-series
+                                            {:colname :MovingAvg3
+                                             :windowed-fn #(ppi/moving-average % 3)
+                                             :windowed-dataset-size 10})]
+  (tc/select-columns result [:timestamp :PpInMs :MovingAvg3]))
+
+;; ### RMSSD Example
+
+(let [hrv-data (let [base-time (java-time/local-date-time 2025 1 1 12 0 0)]
+                 (tc/dataset {:timestamp (map #(java-time/plus base-time (java-time/millis (* % 800)))
+                                              (range 5))
+                              :PpInMs [800 850 820 880 810]}))
+      result (ppi/add-column-by-windowed-fn hrv-data
+                                            {:colname :RMSSD
+                                             :windowed-fn #(ppi/windowed-dataset->rmssd % :timestamp 5000)
+                                             :windowed-dataset-size 120})]
+  (tc/tail result 3))
+
 
