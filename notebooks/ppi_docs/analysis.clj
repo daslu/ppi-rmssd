@@ -152,14 +152,23 @@ segmented-data
 ;; Let us see a few examples of computing time-window RMSSD
 ;; over segments that we considered clean.
 
-;; Here we use the windowed-dataset efficient mechanism
-;; described in the api reference.
+;; Our RMSSD function is `ppi/windowed-dataset->rmssd`,
+;; which is built to work with the `WindowedDataset` efficient construct
+;; that is explained int he API reference.
 
 ;; It is a bit delicate to use, as it is a mutable construct.
+
+;; While it is built to work with streaming data, 
+;; we have the `ppi/add-column-by-windowed-fn` function
+;; that applies it sequentially
+;; to an in-memory time-series and adds an appropriate column.
+
+
 
 (let [segments (tc/group-by segmented-data
                             [:Device-UUID :jump-count]
                             {:result-type :as-seq})
+      windowed-dataset-size 240
       time-window 60000]
   (kind/hiccup
    (into
@@ -174,38 +183,25 @@ segmented-data
          (take 10)
          (map
           (fn [segment]
-            (let [initial-windowed-dataset (-> segmented-data
-                                               (update-vals tcc/typeof)
-                                               (ppi/make-windowed-dataset
-                                                120))
-                  rows (-> segment
-                           (tc/order-by [:timestamp])
-                           (tc/rows :as-maps))]
-              [:div {:style {:background "#dddddd"}}
-               [:p "Device: " (-> segment :Device-UUID first)]
-               [:p "Jump #: " (-> segment :jump-count first)]
-               (-> segment
-                   (plotly/base {:=height 200})
-                   (plotly/layer-line {:=x :timestamp
-                                       :=y :PpInMs
-                                       :=height 200}))
-               (-> segment
-                   (tc/add-column :RMSSD (->> rows
-                                              (reductions
-                                               (fn [[windowed-dataset _] row]
-                                                 (let [new-windowed-dataset
-                                                       (ppi/insert-to-windowed-dataset!
-                                                        windowed-dataset
-                                                        row)]
-                                                   [new-windowed-dataset
-                                                    (ppi/windowed-dataset->rmssd
-                                                     new-windowed-dataset :timestamp time-window)]))
-                                               [initial-windowed-dataset nil])
-                                              (map second)))
-                   (plotly/base {:=height 200})
-                   (plotly/layer-line {:=x :timestamp
-                                       :=y :RMSSD
-                                       :=mark-color "brown"}))])))))))
+            [:div {:style {:background "#dddddd"}}
+             [:p "Device: " (-> segment :Device-UUID first)]
+             [:p "Jump #: " (-> segment :jump-count first)]
+             (-> segment
+                 (plotly/base {:=height 200})
+                 (plotly/layer-line {:=x :timestamp
+                                     :=y :PpInMs
+                                     :=height 200}))
+             (-> segment
+                 (ppi/add-column-by-windowed-fn {:colname :RMSSD
+                                                 :windowed-fn #(ppi/windowed-dataset->rmssd
+                                                                % :timestamp time-window)
+                                                 :windowed-dataset-size windowed-dataset-size})
+                 (plotly/base {:=height 200})
+                 (plotly/layer-line {:=x :timestamp
+                                     :=y :RMSSD
+                                     :=mark-color "brown"}))]))))))
+
+
 
 ;; ## Distorting clean segments
 
@@ -286,3 +282,34 @@ segmented-data
       (plotly/layer-line {:=x :timestamp
                           :=y :PpInMs
                           :=color :signal-type})))
+
+
+;; ## Measuring distortion
+
+(let [distorted-segment (ppi/distort-segment clean-segment-example
+                                             {:noise-std 15.0
+                                              :outlier-prob 0.08
+                                              :outlier-magnitude 3.5
+                                              :missing-prob 0.02
+                                              :extra-prob 0.015})
+      time-window 60000
+      windowed-dataset-size 240
+      add-rmssd (fn [time-series]
+                  (ppi/add-column-by-windowed-fn
+                   time-series
+                   {:colname :RMSSD
+                    :windowed-fn #(ppi/windowed-dataset->rmssd
+                                   % :timestamp time-window)
+                    :windowed-dataset-size windowed-dataset-size}))]
+  (->> [clean-segment-example
+        distorted-segment]
+       (map add-rmssd)
+       (apply #(tc/left-join %1 %2 [:timestamp]))
+       ((fn [joined-ds]
+          joined-ds
+          (let [real (:RMSSD joined-ds)
+                distorted (:right.RMSSD joined-ds)]
+            (-> distorted
+                (tcc/- real)
+                (tcc// real)
+                tcc/mean))))))
