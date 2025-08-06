@@ -692,6 +692,23 @@
       populated-wd (reduce ppi/insert-to-windowed-dataset! wd data)]
   (ppi/exponential-moving-average populated-wd 0.3))
 
+(include-fnvar-as-section #'ppi/cascaded-smoothing-filter)
+
+;; ### Example
+
+(let [wd (ppi/make-windowed-dataset {:PpInMs :int32} 15)
+      ;; Data with noise and outliers
+      data [{:PpInMs 800} {:PpInMs 820} {:PpInMs 1500} {:PpInMs 810}
+            {:PpInMs 805} {:PpInMs 815} {:PpInMs 2000} {:PpInMs 812}
+            {:PpInMs 808} {:PpInMs 795}]
+      populated-wd (reduce ppi/insert-to-windowed-dataset! wd data)]
+
+  ;; Compare cascaded smoothing with individual methods
+  {:median-only (ppi/median-filter populated-wd 5)
+   :moving-avg-only (ppi/moving-average populated-wd 5)
+   :cascaded-5-3 (ppi/cascaded-smoothing-filter populated-wd 5 3)
+   :cascaded-default (ppi/cascaded-smoothing-filter populated-wd)})
+
 (include-fnvar-as-section #'ppi/add-column-by-windowed-fn)
 
 ;; ### Examples
