@@ -238,7 +238,7 @@
 ;; **Usage Pattern:**
 
 ;; 1. Create with `make-windowed-dataset` specifying column types and buffer size
-;; 2. Insert streaming data with `insert-to-windowed-dataset!`
+;; 2. Insert streaming data with `insert-to-windowed-dataset!` (❗**Caution: mutating the internal dataset.**)
 ;; 3. Extract time windows with `windowed-dataset->time-window-dataset`
 ;; 4. Compute HRV metrics like RMSSD over specific time periods
 
