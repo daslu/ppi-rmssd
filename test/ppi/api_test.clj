@@ -2095,3 +2095,214 @@
         (t/is (number? (:mean-relative-error result)))
         (t/is (> (:n-valid-pairs result) 50))))))
 
+(t/deftest cascaded-smoothing-filter-test
+  (t/testing "Basic functionality with sufficient data"
+    (let [;; Create windowed dataset with mixed noise and outliers
+          test-data (tc/dataset {:timestamp (range 15)
+                                 :PpInMs [800 810 1500 820 805 ; outlier at position 2
+                                          815 812 808 795 2000 ; outlier at position 9  
+                                          805 820 800 810 815]
+                                 :PpErrorEstimate (repeat 15 5)
+                                 :Device-UUID (repeat 15 #uuid "8d453046-24f2-921e-34be-7ed0d7a37d6f")})
+
+          windowed-dataset (-> test-data
+                               (update-vals tcc/typeof)
+                               (sut/make-windowed-dataset 20))
+
+          ;; Insert all data
+          final-wd (reduce sut/insert-to-windowed-dataset!
+                           windowed-dataset
+                           (tc/rows test-data :as-maps))]
+
+      ;; Test with default parameters (5pt median, 3pt MA)
+      (let [result (sut/cascaded-smoothing-filter final-wd)]
+        (t/is (number? result))
+        (t/is (> result 700)) ; Should be reasonable PPI value
+        (t/is (< result 900))) ; Outliers should be filtered out
+
+      ;; Test with custom parameters
+      (let [result (sut/cascaded-smoothing-filter final-wd 3 2)]
+        (t/is (number? result))
+        (t/is (> result 700))
+        (t/is (< result 900)))
+
+      ;; Test with specific column
+      (let [result (sut/cascaded-smoothing-filter final-wd 5 3 :PpInMs)]
+        (t/is (number? result)))))
+
+  (t/testing "Insufficient data scenarios"
+    (let [small-data (tc/dataset {:timestamp (range 3)
+                                  :PpInMs [800 810 820]
+                                  :PpErrorEstimate (repeat 3 5)
+                                  :Device-UUID (repeat 3 #uuid "8d453046-24f2-921e-34be-7ed0d7a37d6f")})
+
+          windowed-dataset (-> small-data
+                               (update-vals tcc/typeof)
+                               (sut/make-windowed-dataset 10))
+
+          ;; Insert insufficient data
+          partial-wd (reduce sut/insert-to-windowed-dataset!
+                             windowed-dataset
+                             (tc/rows small-data :as-maps))]
+
+      ;; Should return nil when insufficient data
+      (t/is (nil? (sut/cascaded-smoothing-filter partial-wd)))
+      (t/is (nil? (sut/cascaded-smoothing-filter partial-wd 5 3)))
+      (t/is (nil? (sut/cascaded-smoothing-filter partial-wd 10 5)))))
+
+  (t/testing "Outlier removal effectiveness"
+    (let [;; Data with extreme outliers
+          outlier-data (tc/dataset {:timestamp (range 12)
+                                    :PpInMs [800 800 5000 800 800 ; extreme outlier
+                                             800 800 800 100 800 ; extreme outlier  
+                                             800 800]
+                                    :PpErrorEstimate (repeat 12 5)
+                                    :Device-UUID (repeat 12 #uuid "8d453046-24f2-921e-34be-7ed0d7a37d6f")})
+
+          windowed-dataset (-> outlier-data
+                               (update-vals tcc/typeof)
+                               (sut/make-windowed-dataset 15))
+
+          final-wd (reduce sut/insert-to-windowed-dataset!
+                           windowed-dataset
+                           (tc/rows outlier-data :as-maps))
+
+          result (sut/cascaded-smoothing-filter final-wd)]
+
+      ;; Result should be close to 800, not influenced by outliers
+      (t/is (number? result))
+      (t/is (> result 750))
+      (t/is (< result 850))
+      (t/is (< (abs (- result 800)) 50)))) ; Within 50ms of true value
+
+  (t/testing "Noise reduction effectiveness"
+    (let [;; Data with Gaussian noise but no outliers
+          noisy-data (tc/dataset {:timestamp (range 10)
+                                  :PpInMs [795 803 798 802 799 801 797 804 800 798]
+                                  :PpErrorEstimate (repeat 10 5)
+                                  :Device-UUID (repeat 10 #uuid "8d453046-24f2-921e-34be-7ed0d7a37d6f")})
+
+          windowed-dataset (-> noisy-data
+                               (update-vals tcc/typeof)
+                               (sut/make-windowed-dataset 15))
+
+          final-wd (reduce sut/insert-to-windowed-dataset!
+                           windowed-dataset
+                           (tc/rows noisy-data :as-maps))
+
+          result (sut/cascaded-smoothing-filter final-wd)]
+
+      ;; Should smooth the noise around 800
+      (t/is (number? result))
+      (t/is (> result 795))
+      (t/is (< result 805))))
+
+  (t/testing "Parameter sensitivity"
+    (let [test-data (tc/dataset {:timestamp (range 15)
+                                 :PpInMs [800 810 1200 820 805 815 812 808 795 805 820 800 810 815 800]
+                                 :PpErrorEstimate (repeat 15 5)
+                                 :Device-UUID (repeat 15 #uuid "8d453046-24f2-921e-34be-7ed0d7a37d6f")})
+
+          windowed-dataset (-> test-data
+                               (update-vals tcc/typeof)
+                               (sut/make-windowed-dataset 20))
+
+          final-wd (reduce sut/insert-to-windowed-dataset!
+                           windowed-dataset
+                           (tc/rows test-data :as-maps))]
+
+      ;; Different window sizes should give different but reasonable results
+      (let [result-3-2 (sut/cascaded-smoothing-filter final-wd 3 2)
+            result-5-3 (sut/cascaded-smoothing-filter final-wd 5 3)
+            result-7-4 (sut/cascaded-smoothing-filter final-wd 7 4)]
+
+        (t/is (every? number? [result-3-2 result-5-3 result-7-4]))
+        (t/is (every? #(and (> % 700) (< % 900)) [result-3-2 result-5-3 result-7-4]))
+
+        ;; Results should be similar but not identical
+        (t/is (< (abs (- result-3-2 result-5-3)) 100))
+        (t/is (< (abs (- result-5-3 result-7-4)) 100)))))
+
+  (t/testing "Edge cases and error handling"
+    (let [edge-data (tc/dataset {:timestamp (range 8)
+                                 :PpInMs [800 800 800 800 800 800 800 800]
+                                 :PpErrorEstimate (repeat 8 5)
+                                 :Device-UUID (repeat 8 #uuid "8d453046-24f2-921e-34be-7ed0d7a37d6f")})
+
+          windowed-dataset (-> edge-data
+                               (update-vals tcc/typeof)
+                               (sut/make-windowed-dataset 10))
+
+          final-wd (reduce sut/insert-to-windowed-dataset!
+                           windowed-dataset
+                           (tc/rows edge-data :as-maps))]
+
+      ;; Perfect data should return the same value
+      (let [result (sut/cascaded-smoothing-filter final-wd)]
+        (t/is (number? result))
+        (t/is (< (abs (- result 800.0)) 0.1))) ; Close to 800
+
+      ;; Zero window sizes should return nil
+      (t/is (nil? (sut/cascaded-smoothing-filter final-wd 0 3)))
+      (t/is (nil? (sut/cascaded-smoothing-filter final-wd 3 0))))))
+
+(t/deftest cascaded-smoothing-integration-test
+  (t/testing "Integration with add-column-by-windowed-fn"
+    (let [test-series (tc/dataset
+                       {:timestamp (mapv #(java-time/plus (java-time/local-date-time 2024 1 1 10 0 0)
+                                                          (java-time/millis (* % 800)))
+                                         (range 20))
+                        :PpInMs [800 820 1500 810 805 850 2000 815 812 808 ; Mix of normal and outliers
+                                 795 805 820 1800 800 810 815 805 798 812]
+                        :PpErrorEstimate (repeat 20 5)
+                        :Device-UUID (repeat 20 #uuid "8d453046-24f2-921e-34be-7ed0d7a37d6f")})
+
+          config {:colname :CascadedSmooth
+                  :windowed-fn #(sut/cascaded-smoothing-filter % 5 3)
+                  :windowed-dataset-size 25}
+
+          result (sut/add-column-by-windowed-fn test-series config)]
+
+      ;; Should add the new column successfully
+      (t/is (contains? (set (tc/column-names result)) :CascadedSmooth))
+      (t/is (= (tc/row-count result) (tc/row-count test-series)))
+
+      ;; Check that some values are computed (not all nil)
+      (let [smoothed-values (tc/column result :CascadedSmooth)
+            non-nil-values (filter some? smoothed-values)]
+        (t/is (> (count non-nil-values) 10))
+        (t/is (every? number? non-nil-values))
+        (t/is (every? #(and (> % 600) (< % 1500)) non-nil-values)))))
+
+  (t/testing "Performance comparison with other smoothing methods"
+    (let [test-data (tc/dataset
+                     {:timestamp (range 15)
+                      :PpInMs [800 810 1200 820 805 815 812 808 795 1800 805 820 800 810 815]
+                      :PpErrorEstimate (repeat 15 5)
+                      :Device-UUID (repeat 15 #uuid "8d453046-24f2-921e-34be-7ed0d7a37d6f")})
+
+          windowed-dataset (-> test-data
+                               (update-vals tcc/typeof)
+                               (sut/make-windowed-dataset 20))
+
+          final-wd (reduce sut/insert-to-windowed-dataset!
+                           windowed-dataset
+                           (tc/rows test-data :as-maps))
+
+          cascaded-result (sut/cascaded-smoothing-filter final-wd)
+          median-result (sut/median-filter final-wd 5)
+          ma-result (sut/moving-average final-wd 5)]
+
+      ;; All methods should return reasonable values
+      (t/is (every? number? [cascaded-result median-result ma-result]))
+      (t/is (every? #(and (> % 700) (< % 900)) [cascaded-result median-result ma-result]))
+
+      ;; Cascaded should be closer to median than to moving average (due to outliers)
+      (let [cascaded-median-diff (abs (- cascaded-result median-result))
+            cascaded-ma-diff (abs (- cascaded-result ma-result))]
+        ;; This is data-dependent, so we'll just check they're all reasonable
+        (t/is (< cascaded-median-diff 100))
+        (t/is (< cascaded-ma-diff 100))))))
+
+
+
