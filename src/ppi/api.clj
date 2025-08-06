@@ -35,6 +35,7 @@
   - Converts double quotes to single quotes (`\"\"` -> `\"`)
   
   **Args:**
+  
   - `csv-line` - String containing a single CSV line with quote issues
     
   **Returns:**
@@ -54,6 +55,7 @@
   doesn't already exist.
   
   **Args:**
+  
   - `raw-csv-path` - String path to the input gzipped CSV file
   - `standard-csv-path` - String path for the output standardized gzipped CSV
     
@@ -85,6 +87,7 @@
   - Parsing comma-separated numeric strings in `:PpInMs` and `:PpErrorEstimate` columns
   
   **Args:**
+  
   - `raw-data` - Tablecloth dataset from CSV with string columns
   - `colname-prefix` - String prefix to remove from column names
   
@@ -110,6 +113,7 @@
   "Filters dataset to include only records after a specified date.
   
   **Args:**
+  
   - `prepared-data` - Dataset with parsed timestamps
   - `cutoff-date` - `java-time` LocalDateTime, records after this date are kept
   
@@ -131,6 +135,7 @@
   them to the client timestamp to get actual measurement times.
   
   **Args:**
+  
   - `data` - Tablecloth dataset containing columns:
     - `:Device-UUID` - device identifier  
     - `:Client-Timestamp` - base timestamp from client
@@ -164,6 +169,7 @@
   jumps when gaps exceed the threshold.
   
   **Args:**
+  
   - `data` - Tablecloth dataset with `:Device-UUID` and `:timestamp` columns
   - `params` - Map containing:
     - `:jump-threshold` - minimum gap in milliseconds to consider a jump
@@ -197,6 +203,7 @@
   This is the main dataset to be used in the analysis.
 
   **Args:**
+  
   - `standard-csv-path` - path to the raw data
             
   **Returns:**
@@ -220,6 +227,7 @@
   "Calculate coefficient of variation using dtype-next vectorized operations.
   
   **Args:**
+  
   - `values` - Sequence or array of numeric values
   
   **Returns:**
@@ -235,6 +243,7 @@
   "Calculate percentage changes between successive elements efficiently.
   
   **Args:**
+  
   - `values` - Sequence or array of numeric values
   
   **Returns:**
@@ -261,6 +270,7 @@
   Uses dtype-next fast statistical functions for improved performance.
   
   **Args:**
+  
   - `segment-data` - The time series of one segment of one device.
   - `params` - Map containing quality thresholds:
     - `:max-error-estimate` - Maximum acceptable PP error 
@@ -313,6 +323,7 @@
   and given `column-types` (map).
 
   **Args:**
+  
   - `column-types` - a map from column name to type
   - `max-size` - maximal window size to keep
 
@@ -332,6 +343,7 @@
   "Create a deep copy of a windowed dataset.
   
   **Args:**
+  
   - `windowed-dataset` - a `WindowedDataset`
   
   **Returns:**
@@ -362,6 +374,7 @@
   "Insert a new row to a `WindowedDataset`.
   
   **Args:**
+  
   - `windowed-dataset` - a `WindowedDataset`
   - `row` - A row represented as a map structure
   (can be a record or `FastStruct`, etc.)
@@ -394,6 +407,7 @@
   from the underlying dataset to present data in the correct chronological order.
   
   **Args:**
+  
   - `windowed-dataset` - a `WindowedDataset`
   
   **Returns:**
@@ -414,6 +428,7 @@
   "Return a regular dataset as a view over the content of a windowed dataset.
 
   **Args:**
+  
   - `windowed-dataset` - a `WindowedDataset`"
   [{:as windowed-dataset
     :keys [dataset]}]
@@ -427,6 +442,7 @@
   "Find the first index position where timestamp >= target-time using binary search.
   
   **Args:**
+  
   - `timestamp-col` - dataset column containing timestamps
   - `indices` - vector of indices in chronological order
   - `target-time` - target timestamp to search for
@@ -450,6 +466,7 @@
   including only a recent time window. Uses binary search for optimal performance.
 
   **Args:**
+  
   - `windowed-dataset` - a `WindowedDataset`
   - `timestamp-colname` - the name of the column that contains timestamps
   - `time-window` - window length in ms (from most recent timestamp backwards)
@@ -503,6 +520,7 @@
   mean square of the differences between successive intervals.
   
   **Args:**
+  
   - `windowed-dataset` - a `WindowedDataset` containing PPI data
   - `timestamp-colname` - the name of the column that contains timestamps  
   - `time-window` - window length in ms (from most recent timestamp backwards)
