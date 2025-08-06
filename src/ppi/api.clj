@@ -907,6 +907,54 @@
   ([windowed-dataset alpha]
    (exponential-moving-average windowed-dataset alpha :PpInMs)))
 
+(defn cascaded-smoothing-filter
+  "Apply cascaded smoothing: median filter followed by moving average.
+  
+  This combines the outlier-removal power of median filtering with the 
+  noise-reduction benefits of moving averages for comprehensive cleaning.
+  
+  **Args:**
+  
+  - `windowed-dataset` - a `WindowedDataset`
+  - `median-window` - window size for median filter (default: 5)
+  - `ma-window` - window size for moving average (default: 3)
+  - `ppi-colname` - column name containing PPI intervals (default: :PpInMs)
+  
+  **Returns:**
+  Final smoothed value, or nil if insufficient data"
+  ([windowed-dataset median-window ma-window ppi-colname]
+   (let [{:keys [current-size]} windowed-dataset]
+     (when (>= current-size (+ median-window ma-window))
+       ;; Step 1: Apply median filter to remove outliers
+       (let [recent-data (windowed-dataset->dataset windowed-dataset)
+             recent-values (-> recent-data
+                               (tc/tail (+ median-window ma-window)) ; Need extra data for both stages
+                               (tc/column ppi-colname)
+                               vec)
+
+             ;; Apply median filter across the data
+             median-filtered (mapv (fn [i]
+                                     (if (and (>= i (quot median-window 2))
+                                              (< i (- (count recent-values) (quot median-window 2))))
+                                       (let [start (- i (quot median-window 2))
+                                             end (+ i (quot median-window 2) 1)
+                                             window (subvec recent-values start end)]
+                                         (nth (sort window) (quot median-window 2)))
+                                       (nth recent-values i)))
+                                   (range (count recent-values)))
+
+             ;; Step 2: Apply moving average to the median-filtered data for smoothing
+             final-values (-> median-filtered
+                              (subvec (- (count median-filtered) ma-window)))
+
+             moving-avg (/ (reduce + final-values) ma-window)]
+
+         moving-avg))))
+  ([windowed-dataset median-window ma-window]
+   (cascaded-smoothing-filter windowed-dataset median-window ma-window :PpInMs))
+  ([windowed-dataset]
+   (cascaded-smoothing-filter windowed-dataset 5 3 :PpInMs)))
+
 (defn add-column-by-windowed-fn
   "Add a new column to a time-series by applying a windowed function progressively.
   

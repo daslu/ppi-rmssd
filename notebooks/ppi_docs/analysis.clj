@@ -414,6 +414,11 @@ segmented-data
                              :windowed-fn #(ppi/cascaded-median-filter %)
                              :windowed-dataset-size 240}
 
+                            "Cascaded smoothing"
+                            {:colname :RMSSD-CascSmooth
+                             :windowed-fn #(ppi/cascaded-smoothing-filter % 5 3)
+                             :windowed-dataset-size 240}
+
                             "Exponential MA (α=0.3)"
                             {:colname :RMSSD-EMA3
                              :windowed-fn #(ppi/exponential-moving-average % 0.3)
@@ -539,6 +544,10 @@ segmented-data
                       "Cascaded median" {:colname :RMSSD-CascMed
                                          :windowed-fn #(ppi/cascaded-median-filter %)
                                          :windowed-dataset-size 240}
+
+                      "Cascaded smoothing" {:colname :RMSSD-CascSmooth
+                                            :windowed-fn #(ppi/cascaded-smoothing-filter % 5 3)
+                                            :windowed-dataset-size 240}
 
                       "Exponential MA (α=0.2)" {:colname :RMSSD-EMA2
                                                 :windowed-fn #(ppi/exponential-moving-average % 0.2)
