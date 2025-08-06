@@ -1586,3 +1586,57 @@
 
 
 
+
+(t/deftest moving-average-test
+  (t/testing "Basic moving average calculation"
+    (let [;; Create windowed dataset with known values
+          wd (sut/make-windowed-dataset {:PpInMs :int32} 10)
+          test-values [800 810 820 830 840]
+          test-data (map (fn [v] {:PpInMs v}) test-values)
+          populated-wd (reduce sut/insert-to-windowed-dataset! wd test-data)]
+      
+      ;; Test different window sizes
+      (t/is (= 830 (sut/moving-average populated-wd 3)))  ; avg of [820 830 840]
+      (t/is (= 825 (sut/moving-average populated-wd 4)))  ; avg of [810 820 830 840]  
+      (t/is (= 820 (sut/moving-average populated-wd 5)))  ; avg of [800 810 820 830 840]
+      
+      ;; Test insufficient data
+      (t/is (nil? (sut/moving-average populated-wd 6)))   ; only 5 samples available
+      (t/is (nil? (sut/moving-average populated-wd 10))))) ; way more than available
+  
+  (t/testing "Custom column name support"
+    (let [wd (sut/make-windowed-dataset {:HeartInterval :int32} 5)
+          test-data [{:HeartInterval 900} {:HeartInterval 950} {:HeartInterval 1000}]
+          populated-wd (reduce sut/insert-to-windowed-dataset! wd test-data)]
+      
+      (t/is (= 950 (sut/moving-average populated-wd 3 :HeartInterval)))))
+  
+  (t/testing "Empty dataset"
+    (let [empty-wd (sut/make-windowed-dataset {:PpInMs :int32} 5)]
+      (t/is (nil? (sut/moving-average empty-wd 1)))
+      (t/is (nil? (sut/moving-average empty-wd 3)))))
+  
+  (t/testing "Single sample"
+    (let [wd (sut/make-windowed-dataset {:PpInMs :int32} 5)
+          single-wd (sut/insert-to-windowed-dataset! wd {:PpInMs 800})]
+      (t/is (= 800 (sut/moving-average single-wd 1)))
+      (t/is (nil? (sut/moving-average single-wd 2)))))
+  
+  (t/testing "Circular buffer behavior"
+    (let [;; Small buffer that will wrap around
+          wd (sut/make-windowed-dataset {:PpInMs :int32} 3)
+          ;; Insert more data than capacity
+          test-data (map (fn [v] {:PpInMs v}) [100 200 300 400 500])
+          final-wd (reduce sut/insert-to-windowed-dataset! wd test-data)]
+      
+      ;; Should only have last 3 values: [300 400 500]
+      (t/is (= 400 (sut/moving-average final-wd 3)))  ; avg of [300 400 500]
+      (t/is (= 450 (sut/moving-average final-wd 2))))) ; avg of [400 500]
+  
+  (t/testing "Floating point precision"
+    (let [wd (sut/make-windowed-dataset {:PpInMs :float64} 5)
+          test-data [{:PpInMs 800.5} {:PpInMs 810.7} {:PpInMs 820.3}]
+          populated-wd (reduce sut/insert-to-windowed-dataset! wd test-data)]
+      
+      ;; Test precise calculation
+      (t/is (< (Math/abs (- 810.5 (sut/moving-average populated-wd 3))) 0.01)))))

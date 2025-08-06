@@ -807,4 +807,33 @@
   ([clean-data]
    (distort-segment clean-data {})))
 
+;; ## Simple Smoothing Functions for Streaming Analysis
+
+(defn moving-average
+  "Calculate simple moving average of recent data in windowed dataset.
+  
+  **Args:**
+  - `windowed-dataset` - a `WindowedDataset`
+  - `window-size` - number of recent samples to average
+  - `ppi-colname` - column name containing PPI intervals (default: :PpInMs)
+  
+  **Returns:**
+  Moving average of the most recent window-size samples, or nil if insufficient data
+  
+  **Example:**
+  ```clojure
+  ;; Calculate average of last 10 samples
+  (moving-average wd 10 :PpInMs)
+  ```"
+  ([windowed-dataset window-size ppi-colname]
+   (let [{:keys [current-size]} windowed-dataset]
+     (when (>= current-size window-size)
+       (let [recent-data (windowed-dataset->dataset windowed-dataset)
+             recent-values (-> recent-data
+                               (tc/tail window-size)
+                               (tc/column ppi-colname))]
+         (/ (reduce + recent-values) window-size)))))
+  ([windowed-dataset window-size]
+   (moving-average windowed-dataset window-size :PpInMs)))
+
 
