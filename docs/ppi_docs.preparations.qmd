@@ -211,9 +211,9 @@ Look at a sample row to understand the data format:
  "Jsonb Value � Total" nil,
  "Device UUID" #uuid "342f7b6b-4f2a-64cb-1ead-bc189f7eb89d",
  "Created At"
- #object[java.time.LocalDateTime 0x4bdb1316 "2025-05-10T12:57"],
+ #object[java.time.LocalDateTime 0x30fa469c "2025-05-10T12:57"],
  "Client Timestamp"
- #object[java.time.LocalDateTime 0x4cfccc95 "2025-05-10T12:40"],
+ #object[java.time.LocalDateTime 0x2c26d84 "2025-05-10T12:40"],
  "Quantity" "ppi",
  "Int Value" nil,
  "Double Value" nil,
@@ -318,7 +318,7 @@ Find the earliest timestamp in our dataset:
 
 ::: {.printedClojure}
 ```clojure
-#object[java.time.LocalDateTime 0x7d8224e9 "2000-01-01T16:57"]
+#object[java.time.LocalDateTime 0x67e112ad "2000-01-01T16:57"]
 
 ```
 :::
@@ -339,7 +339,7 @@ Find the latest timestamp in our dataset:
 
 ::: {.printedClojure}
 ```clojure
-#object[java.time.LocalDateTime 0x1b693959 "2025-05-29T12:43"]
+#object[java.time.LocalDateTime 0x5a2d0649 "2025-05-29T12:43"]
 
 ```
 :::

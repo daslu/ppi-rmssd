@@ -1189,7 +1189,7 @@ Compute RMSSD (Root Mean Square of Successive Differences) from a windowed datas
 
 
 ```{=html}
-<div><h5>Performance with 1000 data points:</h5><p><strong>Dataset size: </strong>1000 heartbeats</p><p><strong>Time window: </strong>60 seconds</p><p><strong>RMSSD result: </strong>27.11 ms</p><p><strong>Computation time: </strong>0.228 ms</p><p><em>Uses dtype-next operations for optimal performance</em></p></div>
+<div><h5>Performance with 1000 data points:</h5><p><strong>Dataset size: </strong>1000 heartbeats</p><p><strong>Time window: </strong>60 seconds</p><p><strong>RMSSD result: </strong>27.11 ms</p><p><strong>Computation time: </strong>0.417 ms</p><p><em>Uses dtype-next operations for optimal performance</em></p></div>
 ```
 
 
@@ -1298,7 +1298,7 @@ Add Gaussian (normal) noise to PPI intervals to simulate measurement variability
 
 
 ```{=html}
-<div><h4>Gaussian noise example:</h4><p><strong>Original: </strong><code>[800 810 805 815 820]</code></p><p><strong>With 5ms noise: </strong><code>[803 815 801 816 816]</code></p></div>
+<div><h4>Gaussian noise example:</h4><p><strong>Original: </strong><code>[800 810 805 815 820]</code></p><p><strong>With 5ms noise: </strong><code>[793 805 814 815 821]</code></p></div>
 ```
 
 
@@ -1346,7 +1346,7 @@ Add outlier artifacts to simulate sensor malfunctions or movement artifacts.
 
 
 ```{=html}
-<div><h4>Outlier example:</h4><p><strong>Original: </strong><code>[800 810 805 815 820]</code></p><p><strong>With outliers: </strong><code>[830 790 790 815 820]</code></p></div>
+<div><h4>Outlier example:</h4><p><strong>Original: </strong><code>[800 810 805 815 820]</code></p><p><strong>With outliers: </strong><code>[830 790 805 815 830]</code></p></div>
 ```
 
 
@@ -1396,7 +1396,7 @@ Simulate missing heartbeat detections by randomly doubling some intervals.
 
 
 ```{=html}
-<div><h4>Missing beats example:</h4><p><strong>Original: </strong><code>[800 810 805 815 820]</code></p><p><strong>With missing beats: </strong><code>[800 1620 1610 1630 820]</code></p><p><em>Doubled intervals show where beats were "missed"</em></p></div>
+<div><h4>Missing beats example:</h4><p><strong>Original: </strong><code>[800 810 805 815 820]</code></p><p><strong>With missing beats: </strong><code>[1600 1620 805 815 1640]</code></p><p><em>Doubled intervals show where beats were "missed"</em></p></div>
 ```
 
 
@@ -1557,7 +1557,7 @@ Apply multiple realistic distortions to clean HRV data for algorithm evaluation.
 
 
 ```{=html}
-<div><h4>Comprehensive distortion example:</h4><p><strong>Original: </strong><code>[800 800 800 800 800]</code></p><p><strong>Row count: </strong>5 → 5</p><p><strong>Distorted: </strong><code>[804 793 783 779 773]</code></p><p><em>Combines noise, outliers, missing/extra beats, and drift</em></p></div>
+<div><h4>Comprehensive distortion example:</h4><p><strong>Original: </strong><code>[800 800 800 800 800]</code></p><p><strong>Row count: </strong>5 → 5</p><p><strong>Distorted: </strong><code>[796 798 782 778 771]</code></p><p><em>Combines noise, outliers, missing/extra beats, and drift</em></p></div>
 ```
 
 
