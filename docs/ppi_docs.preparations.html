@@ -159,7 +159,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </li>
         <li class="sidebar-item">
   <div class="sidebar-item-container"> 
-  <a href="./ppi_docs.analysis.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Real-Time RMSSD Smoothing for Relaxation Monitoring</span></a>
+  <a href="./ppi_docs.analysis.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Analysis: Data Smoothing/Cleaning and RMSSD Estimation</span></a>
   </div>
 </li>
     </ul>
@@ -335,9 +335,9 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb13-10"><a href="#cb13-10" aria-hidden="true" tabindex="-1"></a> <span class="st">"Jsonb Value � Total"</span> <span class="va">nil</span>,</span>
 <span id="cb13-11"><a href="#cb13-11" aria-hidden="true" tabindex="-1"></a> <span class="st">"Device UUID"</span> #uuid <span class="st">"342f7b6b-4f2a-64cb-1ead-bc189f7eb89d"</span>,</span>
 <span id="cb13-12"><a href="#cb13-12" aria-hidden="true" tabindex="-1"></a> <span class="st">"Created At"</span></span>
-<span id="cb13-13"><a href="#cb13-13" aria-hidden="true" tabindex="-1"></a> #object[java.<span class="kw">time</span>.LocalDateTime <span class="bn">0x5271750a</span> <span class="st">"2025-05-10T12:57"</span>],</span>
+<span id="cb13-13"><a href="#cb13-13" aria-hidden="true" tabindex="-1"></a> #object[java.<span class="kw">time</span>.LocalDateTime <span class="bn">0x1cdd1d77</span> <span class="st">"2025-05-10T12:57"</span>],</span>
 <span id="cb13-14"><a href="#cb13-14" aria-hidden="true" tabindex="-1"></a> <span class="st">"Client Timestamp"</span></span>
-<span id="cb13-15"><a href="#cb13-15" aria-hidden="true" tabindex="-1"></a> #object[java.<span class="kw">time</span>.LocalDateTime <span class="bn">0x42902ea2</span> <span class="st">"2025-05-10T12:40"</span>],</span>
+<span id="cb13-15"><a href="#cb13-15" aria-hidden="true" tabindex="-1"></a> #object[java.<span class="kw">time</span>.LocalDateTime <span class="bn">0x32fdc217</span> <span class="st">"2025-05-10T12:40"</span>],</span>
 <span id="cb13-16"><a href="#cb13-16" aria-hidden="true" tabindex="-1"></a> <span class="st">"Quantity"</span> <span class="st">"ppi"</span>,</span>
 <span id="cb13-17"><a href="#cb13-17" aria-hidden="true" tabindex="-1"></a> <span class="st">"Int Value"</span> <span class="va">nil</span>,</span>
 <span id="cb13-18"><a href="#cb13-18" aria-hidden="true" tabindex="-1"></a> <span class="st">"Double Value"</span> <span class="va">nil</span>,</span>
@@ -535,7 +535,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a>     (<span class="kw">reduce</span> java-time/min))</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
 <div class="printedClojure">
-<div class="sourceCode" id="cb18"><pre class="sourceCode clojure code-with-copy"><code class="sourceCode clojure"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a>#object[java.<span class="kw">time</span>.LocalDateTime <span class="bn">0x19eea1c7</span> <span class="st">"2000-01-01T16:57"</span>]</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode" id="cb18"><pre class="sourceCode clojure code-with-copy"><code class="sourceCode clojure"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a>#object[java.<span class="kw">time</span>.LocalDateTime <span class="bn">0x6e89bf92</span> <span class="st">"2000-01-01T16:57"</span>]</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
 <p>Find the latest timestamp in our dataset:</p>
 <div class="sourceClojure">
@@ -544,7 +544,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb19-3"><a href="#cb19-3" aria-hidden="true" tabindex="-1"></a>     (<span class="kw">reduce</span> java-time/max))</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
 <div class="printedClojure">
-<div class="sourceCode" id="cb20"><pre class="sourceCode clojure code-with-copy"><code class="sourceCode clojure"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a>#object[java.<span class="kw">time</span>.LocalDateTime <span class="bn">0x5f2f9fc6</span> <span class="st">"2025-05-29T12:43"</span>]</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode" id="cb20"><pre class="sourceCode clojure code-with-copy"><code class="sourceCode clojure"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a>#object[java.<span class="kw">time</span>.LocalDateTime <span class="bn">0x828361</span> <span class="st">"2025-05-29T12:43"</span>]</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
 </section>
 <section id="data-filtering" class="level2">
@@ -9118,8 +9118,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
       </a>          
   </div>
   <div class="nav-page nav-page-next">
-      <a href="./ppi_docs.analysis.html" class="pagination-link" aria-label="Real-Time RMSSD Smoothing for Relaxation Monitoring">
-        <span class="nav-page-text"><span class="chapter-title">Real-Time RMSSD Smoothing for Relaxation Monitoring</span></span> <i class="bi bi-arrow-right-short"></i>
+      <a href="./ppi_docs.analysis.html" class="pagination-link" aria-label="Analysis: Data Smoothing/Cleaning and RMSSD Estimation">
+        <span class="nav-page-text"><span class="chapter-title">Analysis: Data Smoothing/Cleaning and RMSSD Estimation</span></span> <i class="bi bi-arrow-right-short"></i>
       </a>
   </div>
 </nav>

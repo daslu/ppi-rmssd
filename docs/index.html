@@ -123,7 +123,7 @@ ul.task-list li input[type="checkbox"] {
 </li>
         <li class="sidebar-item">
   <div class="sidebar-item-container"> 
-  <a href="./ppi_docs.analysis.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Real-Time RMSSD Smoothing for Relaxation Monitoring</span></a>
+  <a href="./ppi_docs.analysis.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Analysis: Data Smoothing/Cleaning and RMSSD Estimation</span></a>
   </div>
 </li>
     </ul>
@@ -137,9 +137,11 @@ ul.task-list li input[type="checkbox"] {
    
   <ul>
   <li><a href="#what-this-does" id="toc-what-this-does" class="nav-link active" data-scroll-target="#what-this-does">What this does</a></li>
+  <li><a href="#table-of-contents" id="toc-table-of-contents" class="nav-link" data-scroll-target="#table-of-contents">Table of contents</a></li>
   <li><a href="#key-features" id="toc-key-features" class="nav-link" data-scroll-target="#key-features">Key features</a></li>
   <li><a href="#structure" id="toc-structure" class="nav-link" data-scroll-target="#structure">Structure</a></li>
   <li><a href="#dependencies" id="toc-dependencies" class="nav-link" data-scroll-target="#dependencies">Dependencies</a></li>
+  <li><a href="#recommended-workflow" id="toc-recommended-workflow" class="nav-link" data-scroll-target="#recommended-workflow">Recommended workflow</a></li>
   </ul>
 </nav>
     </div>
@@ -183,6 +185,15 @@ ul.task-list li input[type="checkbox"] {
 <p>This project processes Pulse-to-Pulse Interval (PPI) data from Polar heart rate monitors to calculate RMSSD (Root Mean Square of Successive Differences) - a key measure of heart rate variability used in cardiovascular health and relaxation monitoring.</p>
 <p>The main challenge we’re solving: real-time HRV measurements are often noisy and jumpy, making them hard to interpret. This library provides smoothing algorithms and data quality checks to produce stable, meaningful HRV feedback.</p>
 </section>
+<section id="table-of-contents" class="level2">
+<h2 class="anchored" data-anchor-id="table-of-contents">Table of contents</h2>
+<ul>
+<li><a href="https://daslu.github.io/ppi-rmssd/">Main page</a></li>
+<li><a href="https://daslu.github.io/ppi-rmssd/ppi_docs.api_reference.html">API Reference</a></li>
+<li><a href="https://daslu.github.io/ppi-rmssd/ppi_docs.preparations.html">Getting the Data Ready</a></li>
+<li><a href="https://daslu.github.io/ppi-rmssd/ppi_docs.analysis.html">Analysis: Data Smoothing/Cleaning and RMSSD Estimation</a></li>
+</ul>
+</section>
 <section id="key-features" class="level2">
 <h2 class="anchored" data-anchor-id="key-features">Key features</h2>
 <ul>
@@ -205,15 +216,24 @@ ul.task-list li input[type="checkbox"] {
 <h2 class="anchored" data-anchor-id="dependencies">Dependencies</h2>
 <p>Built on the Clojure data science ecosystem:</p>
 <ul>
-<li><strong>Noj</strong> - data science toolkit:
+<li><a href="https://scicloj.github.io/noj/"><strong>Noj</strong></a> - data science toolkit:
 <ul>
-<li><strong>dtype-next</strong> - array programming</li>
-<li><strong>tech.ml.dataset</strong> - efficient datasets</li>
-<li><strong>Tablecloth</strong> - dataset ergonomics</li>
-<li><strong>Fastmath</strong> - math</li>
-<li><strong>Tableplot</strong> - plotting</li>
-<li><strong>Clay</strong> - Literate programming and visualization</li>
+<li><a href="https://cnuernber.github.io/dtype-next/"><strong>dtype-next</strong></a> - array programming</li>
+<li><a href="https://techascent.github.io/tech.ml.dataset/"><strong>tech.ml.dataset</strong></a> - efficient datasets</li>
+<li><a href="https://scicloj.github.io/tablecloth/"><strong>Tablecloth</strong></a> - dataset ergonomics</li>
+<li><a href="https://generateme.github.io/fastmath/clay/"><strong>Fastmath</strong></a> - math</li>
+<li><a href="https://scicloj.github.io/tableplot/"><strong>Tableplot</strong></a> - plotting</li>
+<li><a href="https://scicloj.github.io/clay/"><strong>Clay</strong></a> - Literate programming and visualization</li>
 </ul></li>
+</ul>
+</section>
+<section id="recommended-workflow" class="level2">
+<h2 class="anchored" data-anchor-id="recommended-workflow">Recommended workflow</h2>
+<ul>
+<li>Just explore most of the code in the REPL.</li>
+<li>For tests: <code>clj -M:test-main</code>.</li>
+<li>For visualizations, use Clay’s <a href="integration">setup</a> in your favourite editor.</li>
+<li>To render <a href="https://daslu.github.io/ppi-rmssd/">the documentation</a>, run the <code>dev/docs.clj</code> script. You will need <a href="https://quarto.org/">Quarto</a> installed in your system.</li>
 </ul>
 <div style="background-color:grey;height:2px;width:100%;"></div>
 <div><pre><small><small>source: <a href="https://github.com/daslu/ppi-rmssd/blob/main/notebooks/index.clj">notebooks/index.clj</a></small></small></pre></div>
