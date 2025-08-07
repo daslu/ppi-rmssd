@@ -2304,5 +2304,50 @@
         (t/is (< cascaded-median-diff 100))
         (t/is (< cascaded-ma-diff 100))))))
 
+(t/deftest new-edge-case-handling-test
+  (t/testing "standardize-csv-line handles nil input gracefully"
+    (t/is (nil? (sut/standardize-csv-line nil))))
+
+  (t/testing "calculate-coefficient-of-variation handles empty collections"
+    (t/is (= 0.0 (sut/calculate-coefficient-of-variation []))))
+
+  (t/testing "calculate-coefficient-of-variation handles collections with nil mean/std"
+    (t/is (= 0.0 (sut/calculate-coefficient-of-variation [0 0 0]))))
+
+  (t/testing "add-timestamps handles empty datasets"
+    (let [empty-data (tc/dataset {})]
+      (t/is (= empty-data (sut/add-timestamps empty-data)))))
+
+  (t/testing "exponential-moving-average validates alpha parameter"
+    ;; Test invalid alpha values without data - should return nil
+    (let [empty-windowed-ds (sut/make-windowed-dataset {:PpInMs :float64} 10)]
+      (t/is (nil? (sut/exponential-moving-average empty-windowed-ds 0)))
+      (t/is (nil? (sut/exponential-moving-average empty-windowed-ds -0.1)))
+      (t/is (nil? (sut/exponential-moving-average empty-windowed-ds 1.5)))))
+
+  (t/testing "exponential-moving-average handles empty data gracefully"
+    (let [empty-windowed-ds (sut/make-windowed-dataset {:PpInMs :float64} 10)]
+      (t/is (nil? (sut/exponential-moving-average empty-windowed-ds 0.5))))))
+
+(t/deftest critical-function-robustness-test
+  (t/testing "Functions handle insufficient data gracefully"
+    ;; Test that functions return nil instead of crashing with insufficient data
+    (let [windowed-ds (sut/make-windowed-dataset {:PpInMs :float64} 10)]
+      ;; No data - should return nil
+      (t/is (nil? (sut/moving-average windowed-ds 3)))
+      (t/is (nil? (sut/median-filter windowed-ds 3)))
+      (t/is (nil? (sut/exponential-moving-average windowed-ds 0.5)))))
+
+  (t/testing "clean-segment? handles edge cases"
+    ;; Test that clean-segment? returns boolean for edge cases
+    (let [empty-segment (tc/dataset {})
+          params {:max-error-estimate 10
+                  :max-heart-rate-cv 20
+                  :max-successive-change 50
+                  :min-clean-duration 25000
+                  :min-clean-samples 2}]
+      ;; Should return false for empty data, not crash
+      (t/is (false? (sut/clean-segment? empty-segment params))))))
+
 
 
