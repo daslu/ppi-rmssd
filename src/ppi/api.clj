@@ -1087,7 +1087,6 @@
   This is ideal for streaming applications where data arrives one measurement at a time.
   
   **Args:**
-
   - `options` - map with configuration keys:
     - `:rmssd-window-ms` - RMSSD calculation window in milliseconds (default: 60000)
     - `:median-window` - median filter window size for RMSSD smoothing (default: 7)
@@ -1097,7 +1096,8 @@
     - `:buffer-size` - internal buffer size (default: 200)
   
   **Returns:**
-  Function that takes a single row (map) and returns updated smoothed RMSSD value. "
+  Function that takes a single row (map) and returns updated smoothed RMSSD value.
+  Row timestamps should be java.time.Instant objects (same as batch processing). "
   ([] (streaming-rmssd-processor {}))
   ([options]
    (let [{:keys [rmssd-window-ms median-window ma-window timestamp-col ppi-col buffer-size]
@@ -1109,10 +1109,11 @@
                buffer-size 200}} options
 
          ;; Create initial windowed datasets for both PPI and RMSSD values
-         ppi-column-types {timestamp-col :int64 ; timestamps as milliseconds
+         ;; Use :packed-instant type for java.time.Instant timestamps (tablecloth native type)
+         ppi-column-types {timestamp-col :packed-instant ; java.time.Instant objects
                            ppi-col :float64} ; PPI values as doubles
-         rmssd-column-types {timestamp-col :int64
-                             :rmssd-raw :float64}
+         rmssd-column-types {timestamp-col :packed-instant ; java.time.Instant objects
+                             :rmssd-raw :float64} ; RMSSD values as doubles
 
          ;; State atoms holding the windowed datasets
          ppi-state-atom (atom (make-windowed-dataset ppi-column-types buffer-size))
@@ -1120,8 +1121,16 @@
 
      ;; Return the processor function
      (fn [row]
-       (let [;; Update PPI state with new row
-             updated-ppi-wd (swap! ppi-state-atom insert-to-windowed-dataset! row)
+       (let [;; Ensure timestamp is java.time.Instant (convert if needed)
+             normalized-row (update row timestamp-col
+                                    (fn [ts]
+                                      (cond
+                                        (instance? java.time.Instant ts) ts
+                                        (number? ts) (java-time/instant ts) ; Convert epoch millis
+                                        :else ts))) ; Pass through other types
+
+             ;; Update PPI state with normalized row
+             updated-ppi-wd (swap! ppi-state-atom insert-to-windowed-dataset! normalized-row)
 
              ;; Compute raw RMSSD for current window
              raw-rmssd (windowed-dataset->rmssd updated-ppi-wd
@@ -1130,7 +1139,7 @@
                                                 ppi-col)]
          (when raw-rmssd
            ;; Create RMSSD row and update RMSSD state
-           (let [rmssd-row (assoc row :rmssd-raw raw-rmssd)
+           (let [rmssd-row (assoc normalized-row :rmssd-raw raw-rmssd)
                  updated-rmssd-wd (swap! rmssd-state-atom insert-to-windowed-dataset! rmssd-row)]
 
              ;; Apply cascaded smoothing to the RMSSD values

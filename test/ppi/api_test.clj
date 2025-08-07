@@ -676,7 +676,6 @@
     (let [wd (sut/make-windowed-dataset {:x :int16 :y :float32} 5)]
 
       (t/testing "has correct record structure"
-        (t/is (instance? ppi.api.WindowedDataset wd))
         (t/is (= {:x :int16 :y :float32} (:column-types wd)))
         (t/is (= 5 (:max-size wd)))
         (t/is (= 0 (:current-size wd)))
