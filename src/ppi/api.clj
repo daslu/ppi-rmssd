@@ -584,6 +584,8 @@
                        rmssd (Math/sqrt mean-squared)]
                    rmssd))))))))))
 
+;; This function will be defined after add-column-by-windowed-fn
+
 (defn add-gaussian-noise
   "Add Gaussian (normal) noise to PPI intervals to simulate measurement variability.
   
@@ -1018,6 +1020,124 @@
                                           (windowed-fn new-windowed-dataset)]))
                                      [initial-windowed-dataset nil])
                                     (map second))))))
+
+(defn compute-rolling-rmssd
+  "Compute rolling RMSSD values over time with cascaded smoothing for stable real-time monitoring.
+  
+  This function addresses the core requirement for real-time RMSSD monitoring by:
+  1. Computing RMSSD over rolling time windows (e.g., 30-60 seconds)
+  2. Using existing cascaded-smoothing-filter to smooth the resulting RMSSD values
+  3. Providing stable, interpretable RMSSD estimates suitable for relaxation monitoring
+  
+  **Args:**
+
+  - `time-series` - tablecloth dataset with PPI data, ordered by timestamp
+  - `options` - map with configuration keys:
+    - `:rmssd-window-ms` - RMSSD calculation window in milliseconds (default: 60000)
+    - `:median-window` - median filter window size for RMSSD smoothing (default: 7)
+    - `:ma-window` - moving average window size for RMSSD smoothing (default: 5)
+    - `:timestamp-col` - timestamp column name (default: :timestamp)
+    - `:ppi-col` - PPI column name (default: :PpInMs)
+    - `:output-col` - output column name (default: :rmssd-smoothed)
+  
+  **Returns:**
+  Original time-series with added columns for raw and smoothed rolling RMSSD values."
+  ([time-series]
+   (compute-rolling-rmssd time-series {}))
+  ([time-series options]
+   (let [{:keys [rmssd-window-ms median-window ma-window timestamp-col ppi-col output-col]
+          :or {rmssd-window-ms 60000
+               median-window 7
+               ma-window 5
+               timestamp-col :timestamp
+               ppi-col :PpInMs
+               output-col :rmssd-smoothed}} options
+
+         ;; First, create windowed function that computes raw RMSSD
+         rmssd-windowed-fn (fn [windowed-dataset]
+                             (windowed-dataset->rmssd windowed-dataset
+                                                      timestamp-col
+                                                      rmssd-window-ms
+                                                      ppi-col))
+
+         ;; Add raw RMSSD column first
+         time-series-with-raw-rmssd (add-column-by-windowed-fn
+                                     time-series
+                                     {:colname :rmssd-raw
+                                      :windowed-fn rmssd-windowed-fn
+                                      :windowed-dataset-size 200})
+
+         ;; Now create windowed function that applies cascaded smoothing to RMSSD values
+         rmssd-smoothing-fn (fn [windowed-dataset]
+                              (cascaded-smoothing-filter windowed-dataset
+                                                         median-window
+                                                         ma-window
+                                                         :rmssd-raw))]
+
+     ;; Apply cascaded smoothing to the RMSSD values
+     (add-column-by-windowed-fn time-series-with-raw-rmssd
+                                {:colname output-col
+                                 :windowed-fn rmssd-smoothing-fn
+                                 :windowed-dataset-size 200}))))
+
+(defn streaming-rmssd-processor
+  "Create a stateful processor for real-time RMSSD computation with cascaded smoothing.
+  
+  Returns a function that can be called with single rows to update RMSSD in real-time.
+  This is ideal for streaming applications where data arrives one measurement at a time.
+  
+  **Args:**
+
+  - `options` - map with configuration keys:
+    - `:rmssd-window-ms` - RMSSD calculation window in milliseconds (default: 60000)
+    - `:median-window` - median filter window size for RMSSD smoothing (default: 7)
+    - `:ma-window` - moving average window size for RMSSD smoothing (default: 5)
+    - `:timestamp-col` - timestamp column name (default: :timestamp)
+    - `:ppi-col` - PPI column name (default: :PpInMs)
+    - `:buffer-size` - internal buffer size (default: 200)
+  
+  **Returns:**
+  Function that takes a single row (map) and returns updated smoothed RMSSD value. "
+  ([] (streaming-rmssd-processor {}))
+  ([options]
+   (let [{:keys [rmssd-window-ms median-window ma-window timestamp-col ppi-col buffer-size]
+          :or {rmssd-window-ms 60000
+               median-window 7
+               ma-window 5
+               timestamp-col :timestamp
+               ppi-col :PpInMs
+               buffer-size 200}} options
+
+         ;; Create initial windowed datasets for both PPI and RMSSD values
+         ppi-column-types {timestamp-col :int64 ; timestamps as milliseconds
+                           ppi-col :float64} ; PPI values as doubles
+         rmssd-column-types {timestamp-col :int64
+                             :rmssd-raw :float64}
+
+         ;; State atoms holding the windowed datasets
+         ppi-state-atom (atom (make-windowed-dataset ppi-column-types buffer-size))
+         rmssd-state-atom (atom (make-windowed-dataset rmssd-column-types buffer-size))]
+
+     ;; Return the processor function
+     (fn [row]
+       (let [;; Update PPI state with new row
+             updated-ppi-wd (swap! ppi-state-atom insert-to-windowed-dataset! row)
+
+             ;; Compute raw RMSSD for current window
+             raw-rmssd (windowed-dataset->rmssd updated-ppi-wd
+                                                timestamp-col
+                                                rmssd-window-ms
+                                                ppi-col)]
+         (when raw-rmssd
+           ;; Create RMSSD row and update RMSSD state
+           (let [rmssd-row (assoc row :rmssd-raw raw-rmssd)
+                 updated-rmssd-wd (swap! rmssd-state-atom insert-to-windowed-dataset! rmssd-row)]
+
+             ;; Apply cascaded smoothing to the RMSSD values
+             (cascaded-smoothing-filter updated-rmssd-wd
+                                        median-window
+                                        ma-window
+                                        :rmssd-raw))))))))
 
 (defn measure-distortion-impact
   "Measures how distortion affects a windowed metric calculation.

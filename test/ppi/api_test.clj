@@ -2304,6 +2304,67 @@
         (t/is (< cascaded-median-diff 100))
         (t/is (< cascaded-ma-diff 100))))))
 
+(t/deftest compute-rolling-rmssd-test
+  (t/testing "Rolling RMSSD computation with cascaded smoothing"
+    ;; Create test data with proper timestamps
+    (let [test-data (tc/dataset {:Device-UUID (repeat 20 "test-device")
+                                 :Client-Timestamp (repeat 20 (java-time/instant))
+                                 :PpInMs [850 900 800 950 820 880 870 890 860 910
+                                          840 920 830 940 825 895 875 905 865 915]})
+          timestamped-data (sut/add-timestamps test-data)
+          result (sut/compute-rolling-rmssd timestamped-data
+                                            {:rmssd-window-ms 5000 ; 5 second window
+                                             :median-window 3
+                                             :ma-window 3})]
+
+      ;; Check that result has expected columns
+      (t/is (contains? (set (tc/column-names result)) :rmssd-raw))
+      (t/is (contains? (set (tc/column-names result)) :rmssd-smoothed))
+
+      ;; Check that RMSSD values are computed for later rows
+      (let [rmssd-values (tc/column result :rmssd-raw)
+            smoothed-values (tc/column result :rmssd-smoothed)]
+
+        ;; Should have some non-nil RMSSD values after initial window
+        (t/is (some some? (drop 5 rmssd-values)))
+
+        ;; Smoothed values should also be computed
+        (t/is (some some? (drop 5 smoothed-values)))
+
+        ;; RMSSD values should be positive when present
+        (t/is (every? #(or (nil? %) (pos? %)) rmssd-values))
+        (t/is (every? #(or (nil? %) (pos? %)) smoothed-values)))))
+
+  (t/testing "Rolling RMSSD with custom parameters"
+    (let [test-data (tc/dataset {:Device-UUID (repeat 15 "device-2")
+                                 :Client-Timestamp (repeat 15 (java-time/instant))
+                                 :PpInMs (range 800 950 10)}) ; Smooth increasing trend
+          timestamped-data (sut/add-timestamps test-data)
+          result (sut/compute-rolling-rmssd timestamped-data
+                                            {:rmssd-window-ms 3000
+                                             :median-window 5
+                                             :ma-window 4
+                                             :output-col :custom-rmssd})]
+
+      ;; Check custom output column name
+      (t/is (contains? (set (tc/column-names result)) :custom-rmssd))
+
+      ;; Should produce reasonable RMSSD values for trending data
+      (let [custom-values (tc/column result :custom-rmssd)]
+        (t/is (some some? (drop 5 custom-values))))))
+
+  (t/testing "Rolling RMSSD edge cases"
+    ;; Test with insufficient data
+    (let [small-data (tc/dataset {:Device-UUID ["dev"]
+                                  :Client-Timestamp [(java-time/instant)]
+                                  :PpInMs [800]})
+          timestamped-small (sut/add-timestamps small-data)
+          result-small (sut/compute-rolling-rmssd timestamped-small)]
+
+      ;; Should handle small datasets gracefully
+      (t/is (= 1 (tc/row-count result-small)))
+      (t/is (nil? (first (tc/column result-small :rmssd-smoothed)))))))
+
 (t/deftest new-edge-case-handling-test
   (t/testing "standardize-csv-line handles nil input gracefully"
     (t/is (nil? (sut/standardize-csv-line nil))))
