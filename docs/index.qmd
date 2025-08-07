@@ -61,6 +61,7 @@ Built on the Clojure data science ecosystem:
 
 ## Recommended workflow
 
+* Add the raw data file under the `data` directory.
 * Just explore most of the code in the REPL.
 * For tests: `clj -M:test-main`.
 * For visualizations, use Clay's [setup](integration) in your favourite editor.
