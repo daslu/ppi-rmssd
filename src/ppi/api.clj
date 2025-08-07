@@ -779,7 +779,7 @@
   **Returns:**
   Dataset with realistic distortions applied
   
-"
+  "
   ([clean-data distortion-params]
    (let [params (merge {:noise-std 3.0
                         :outlier-prob 0.015
@@ -806,8 +806,6 @@
          (add-trend-drift ppi-colname drift-magnitude))))
   ([clean-data]
    (distort-segment clean-data {})))
-
-;; ## Simple Smoothing Functions for Streaming Analysis
 
 ;; ## Simple Smoothing Functions for Streaming Analysis
 
@@ -1025,23 +1023,31 @@
   "Compute rolling RMSSD values over time with cascaded smoothing for stable real-time monitoring.
   
   This function addresses the core requirement for real-time RMSSD monitoring by:
-  1. Computing RMSSD over rolling time windows (e.g., 30-60 seconds)
-  2. Using existing cascaded-smoothing-filter to smooth the resulting RMSSD values
+  1. Applying cascaded smoothing (median filter + moving average) to PPI data first
+  2. Computing RMSSD over rolling time windows (e.g., 30-60 seconds) on the cleaned data
   3. Providing stable, interpretable RMSSD estimates suitable for relaxation monitoring
   
   **Args:**
-
   - `time-series` - tablecloth dataset with PPI data, ordered by timestamp
   - `options` - map with configuration keys:
     - `:rmssd-window-ms` - RMSSD calculation window in milliseconds (default: 60000)
-    - `:median-window` - median filter window size for RMSSD smoothing (default: 7)
-    - `:ma-window` - moving average window size for RMSSD smoothing (default: 5)
+    - `:median-window` - median filter window size for PPI smoothing (default: 7)
+    - `:ma-window` - moving average window size for PPI smoothing (default: 5)
     - `:timestamp-col` - timestamp column name (default: :timestamp)
     - `:ppi-col` - PPI column name (default: :PpInMs)
-    - `:output-col` - output column name (default: :rmssd-smoothed)
+    - `:output-col` - output column name (default: :rmssd-clean)
   
   **Returns:**
-  Original time-series with added columns for raw and smoothed rolling RMSSD values."
+  Original time-series with added columns for smoothed PPI and clean RMSSD values.
+  
+  **Example:**
+  ```clojure
+  ;; Compute 60-second rolling RMSSD with moderate PPI smoothing
+  (compute-rolling-rmssd ppi-data {:rmssd-window-ms 60000})
+  
+  ;; For more aggressive PPI cleaning during noisy conditions  
+  (compute-rolling-rmssd ppi-data {:median-window 9 :ma-window 7})
+  ```"
   ([time-series]
    (compute-rolling-rmssd time-series {}))
   ([time-series options]
@@ -1051,33 +1057,33 @@
                ma-window 5
                timestamp-col :timestamp
                ppi-col :PpInMs
-               output-col :rmssd-smoothed}} options
+               output-col :rmssd-clean}} options
 
-         ;; First, create windowed function that computes raw RMSSD
-         rmssd-windowed-fn (fn [windowed-dataset]
-                             (windowed-dataset->rmssd windowed-dataset
-                                                      timestamp-col
-                                                      rmssd-window-ms
-                                                      ppi-col))
+         ;; Step 1: Apply cascaded smoothing to PPI data first
+         ppi-smoothing-fn (fn [windowed-dataset]
+                            (cascaded-smoothing-filter windowed-dataset
+                                                       median-window
+                                                       ma-window
+                                                       ppi-col))
 
-         ;; Add raw RMSSD column first
-         time-series-with-raw-rmssd (add-column-by-windowed-fn
-                                     time-series
-                                     {:colname :rmssd-raw
-                                      :windowed-fn rmssd-windowed-fn
-                                      :windowed-dataset-size 200})
+         ;; Add smoothed PPI column
+         time-series-with-smooth-ppi (add-column-by-windowed-fn
+                                      time-series
+                                      {:colname :ppi-smoothed
+                                       :windowed-fn ppi-smoothing-fn
+                                       :windowed-dataset-size 200})
 
-         ;; Now create windowed function that applies cascaded smoothing to RMSSD values
-         rmssd-smoothing-fn (fn [windowed-dataset]
-                              (cascaded-smoothing-filter windowed-dataset
-                                                         median-window
-                                                         ma-window
-                                                         :rmssd-raw))]
+         ;; Step 2: Compute RMSSD on the smoothed PPI data
+         clean-rmssd-fn (fn [windowed-dataset]
+                          (windowed-dataset->rmssd windowed-dataset
+                                                   timestamp-col
+                                                   rmssd-window-ms
+                                                   :ppi-smoothed))]
 
-     ;; Apply cascaded smoothing to the RMSSD values
-     (add-column-by-windowed-fn time-series-with-raw-rmssd
+     ;; Apply RMSSD calculation to smoothed PPI data
+     (add-column-by-windowed-fn time-series-with-smooth-ppi
                                 {:colname output-col
-                                 :windowed-fn rmssd-smoothing-fn
+                                 :windowed-fn clean-rmssd-fn
                                  :windowed-dataset-size 200}))))
 
 (defn streaming-rmssd-processor
@@ -1089,15 +1095,27 @@
   **Args:**
   - `options` - map with configuration keys:
     - `:rmssd-window-ms` - RMSSD calculation window in milliseconds (default: 60000)
-    - `:median-window` - median filter window size for RMSSD smoothing (default: 7)
-    - `:ma-window` - moving average window size for RMSSD smoothing (default: 5)
+    - `:median-window` - median filter window size for PPI smoothing (default: 7)
+    - `:ma-window` - moving average window size for PPI smoothing (default: 5)
     - `:timestamp-col` - timestamp column name (default: :timestamp)
     - `:ppi-col` - PPI column name (default: :PpInMs)
     - `:buffer-size` - internal buffer size (default: 200)
   
   **Returns:**
-  Function that takes a single row (map) and returns updated smoothed RMSSD value.
-  Row timestamps should be java.time.Instant objects (same as batch processing). "
+  Function that takes a single row (map) and returns clean RMSSD value computed on smoothed PPI data.
+  Row timestamps should be java.time.Instant objects (same as batch processing).
+  
+  **Example:**
+  ```clojure
+  ;; Create processor for 60-second RMSSD with moderate PPI smoothing
+  (def rmssd-proc (streaming-rmssd-processor {:rmssd-window-ms 60000}))
+  
+  ;; Process incoming data one row at a time (timestamps as java.time.Instant)
+  (doseq [row incoming-ppi-measurements]
+    (let [current-rmssd (rmssd-proc row)]
+      (when current-rmssd
+        (send-biofeedback-signal current-rmssd))))
+  ```"
   ([] (streaming-rmssd-processor {}))
   ([options]
    (let [{:keys [rmssd-window-ms median-window ma-window timestamp-col ppi-col buffer-size]
@@ -1108,16 +1126,16 @@
                ppi-col :PpInMs
                buffer-size 200}} options
 
-         ;; Create initial windowed datasets for both PPI and RMSSD values
+         ;; Create initial windowed datasets for both PPI and smoothed PPI values
          ;; Use :packed-instant type for java.time.Instant timestamps (tablecloth native type)
          ppi-column-types {timestamp-col :packed-instant ; java.time.Instant objects
                            ppi-col :float64} ; PPI values as doubles
-         rmssd-column-types {timestamp-col :packed-instant ; java.time.Instant objects
-                             :rmssd-raw :float64} ; RMSSD values as doubles
+         smooth-ppi-column-types {timestamp-col :packed-instant ; java.time.Instant objects
+                                  :ppi-smoothed :float64} ; Smoothed PPI values as doubles
 
          ;; State atoms holding the windowed datasets
          ppi-state-atom (atom (make-windowed-dataset ppi-column-types buffer-size))
-         rmssd-state-atom (atom (make-windowed-dataset rmssd-column-types buffer-size))]
+         smooth-ppi-state-atom (atom (make-windowed-dataset smooth-ppi-column-types buffer-size))]
 
      ;; Return the processor function
      (fn [row]
@@ -1129,24 +1147,23 @@
                                         (number? ts) (java-time/instant ts) ; Convert epoch millis
                                         :else ts))) ; Pass through other types
 
-             ;; Update PPI state with normalized row
+             ;; Step 1: Update PPI state and get smoothed PPI value
              updated-ppi-wd (swap! ppi-state-atom insert-to-windowed-dataset! normalized-row)
+             smoothed-ppi (cascaded-smoothing-filter updated-ppi-wd
+                                                     median-window
+                                                     ma-window
+                                                     ppi-col)]
 
-             ;; Compute raw RMSSD for current window
-             raw-rmssd (windowed-dataset->rmssd updated-ppi-wd
-                                                timestamp-col
-                                                rmssd-window-ms
-                                                ppi-col)]
-         (when raw-rmssd
-           ;; Create RMSSD row and update RMSSD state
-           (let [rmssd-row (assoc normalized-row :rmssd-raw raw-rmssd)
-                 updated-rmssd-wd (swap! rmssd-state-atom insert-to-windowed-dataset! rmssd-row)]
+         (when smoothed-ppi
+           ;; Step 2: Create row with smoothed PPI and update smoothed PPI state
+           (let [smooth-ppi-row (assoc normalized-row :ppi-smoothed smoothed-ppi)
+                 updated-smooth-wd (swap! smooth-ppi-state-atom insert-to-windowed-dataset! smooth-ppi-row)]
 
-             ;; Apply cascaded smoothing to the RMSSD values
-             (cascaded-smoothing-filter updated-rmssd-wd
-                                        median-window
-                                        ma-window
-                                        :rmssd-raw))))))))
+             ;; Step 3: Compute RMSSD on smoothed PPI data
+             (windowed-dataset->rmssd updated-smooth-wd
+                                      timestamp-col
+                                      rmssd-window-ms
+                                      :ppi-smoothed))))))))
 
 (defn measure-distortion-impact
   "Measures how distortion affects a windowed metric calculation.

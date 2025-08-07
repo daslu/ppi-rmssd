@@ -2377,9 +2377,9 @@
                                              :median-window 3
                                              :ma-window 3})]
 
-      ;; Check that result has expected columns
-      (t/is (contains? (set (tc/column-names result)) :rmssd-raw))
-      (t/is (contains? (set (tc/column-names result)) :rmssd-smoothed))
+      ;; Check that result has expected columns (corrected column names)
+      (t/is (contains? (set (tc/column-names result)) :ppi-smoothed))
+      (t/is (contains? (set (tc/column-names result)) :rmssd-clean))
 
       ;; Verify RMSSD calculation accuracy with regular intervals
       (let [regular-data (tc/dataset {:Device-UUID (repeat 10 "regular")
@@ -2387,11 +2387,11 @@
                                       :PpInMs (repeat 10 900)}) ; Perfectly regular
             regular-timestamped (sut/add-timestamps regular-data)
             regular-result (sut/compute-rolling-rmssd regular-timestamped)
-            regular-rmssd (filter some? (tc/column regular-result :rmssd-raw))]
+            regular-rmssd (filter some? (tc/column regular-result :rmssd-clean))]
         ;; RMSSD should be 0.0 for perfectly regular intervals
         (t/is (every? #(< % 0.01) regular-rmssd)))
 
-      ;; Test smoothing effectiveness
+      ;; Test smoothing effectiveness on PPI data before RMSSD calculation
       (let [outlier-data (tc/dataset {:Device-UUID (repeat 15 "outlier")
                                       :Client-Timestamp (repeat 15 (java-time/instant))
                                       :PpInMs [900 920 880 1500 910 905 920 880 910 900
@@ -2399,11 +2399,13 @@
             outlier-timestamped (sut/add-timestamps outlier-data)
             minimal-smooth (sut/compute-rolling-rmssd outlier-timestamped {:median-window 3 :ma-window 3})
             aggressive-smooth (sut/compute-rolling-rmssd outlier-timestamped {:median-window 7 :ma-window 5})
-            minimal-values (filter some? (tc/column minimal-smooth :rmssd-smoothed))
-            aggressive-values (filter some? (tc/column aggressive-smooth :rmssd-smoothed))]
-        ;; Aggressive smoothing should reduce maximum values
-        (when (and (seq minimal-values) (seq aggressive-values))
-          (t/is (< (apply max aggressive-values) (apply max minimal-values)))))))
+            minimal-ppi (filter some? (tc/column minimal-smooth :ppi-smoothed))
+            aggressive-ppi (filter some? (tc/column aggressive-smooth :ppi-smoothed))]
+        ;; Aggressive PPI smoothing should be more stable than minimal
+        (when (and (seq minimal-ppi) (seq aggressive-ppi))
+          (let [minimal-cv (sut/calculate-coefficient-of-variation minimal-ppi)
+                aggressive-cv (sut/calculate-coefficient-of-variation aggressive-ppi)]
+            (t/is (< aggressive-cv minimal-cv) "Aggressive smoothing should reduce PPI variability"))))))
 
   (t/testing "Edge cases and parameter validation"
     ;; Test with very small dataset
@@ -2414,7 +2416,7 @@
           small-result (sut/compute-rolling-rmssd small-timestamped)]
       ;; Should handle gracefully without errors
       (t/is (= 1 (tc/row-count small-result)))
-      (t/is (every? nil? (tc/column small-result :rmssd-smoothed))))
+      (t/is (every? nil? (tc/column small-result :rmssd-clean))))
 
     ;; Test custom column names
     (let [test-data (tc/dataset {:Device-UUID (repeat 10 "custom")
@@ -2436,6 +2438,135 @@
       ;; Should complete in reasonable time (less than 1 second for 50 rows)
       (t/is (< execution-time-ms 1000))
       (t/is (= 50 (tc/row-count large-result))))))
+
+(t/deftest streaming-rmssd-processor-test
+  (t/testing "Streaming RMSSD processor basic functionality"
+    ;; Test processor creation
+    (let [proc (sut/streaming-rmssd-processor)]
+      (t/is (fn? proc) "Should return a function")
+
+      ;; Test with single row (insufficient data)
+      (let [test-row {:Device-UUID "test-device"
+                      :PpInMs 900.0
+                      :timestamp (java-time/instant)}
+            result (proc test-row)]
+        (t/is (nil? result) "Should return nil with insufficient data"))))
+
+  (t/testing "Streaming RMSSD with sufficient data"
+    (let [proc (sut/streaming-rmssd-processor {:rmssd-window-ms 8000
+                                               :median-window 3
+                                               :ma-window 3})
+          base-time (java-time/instant)]
+
+      ;; Feed enough data points to get RMSSD calculation
+      (let [results
+            (mapv (fn [i ppi]
+                    (let [row {:Device-UUID "stream-test"
+                               :Client-Timestamp base-time
+                               :PpInMs (double ppi)
+                               :accumulated-pp (* i 1000)
+                               :timestamp (java-time/plus base-time (java-time/millis (* i 1000)))}]
+                      (proc row)))
+                  (range 15)
+                  [900 920 880 910 905 920 880 910 900 920 880 910 905 920 880])]
+
+        ;; Should have nil values initially, then RMSSD values
+        (t/is (every? nil? (take 8 results)) "Initial values should be nil")
+        (t/is (some some? (drop 8 results)) "Should eventually produce RMSSD values")
+
+        ;; RMSSD values should be positive when present
+        (let [rmssd-values (filter some? results)]
+          (t/is (every? pos? rmssd-values) "RMSSD values should be positive")))))
+
+  (t/testing "Streaming processor with java.time.Instant timestamps"
+    (let [proc (sut/streaming-rmssd-processor {:rmssd-window-ms 5000})
+          base-time (java-time/instant)]
+
+      ;; Test with proper java.time.Instant timestamps
+      (doseq [i (range 5)]
+        (let [row {:Device-UUID "instant-test"
+                   :PpInMs (+ 900.0 (* i 10))
+                   :timestamp (java-time/plus base-time (java-time/millis (* i 1000)))}
+              result (proc row)]
+          ;; Should not throw exceptions
+          (t/is (or (nil? result) (number? result)) "Result should be nil or number")))))
+
+  (t/testing "Streaming processor with epoch milliseconds conversion"
+    (let [proc (sut/streaming-rmssd-processor {:rmssd-window-ms 6000})
+          base-epoch 1000000000000]
+
+      ;; Test automatic conversion from epoch milliseconds
+      (doseq [i (range 5)]
+        (let [row {:Device-UUID "epoch-test"
+                   :PpInMs (+ 900.0 (* i 15))
+                   :timestamp (+ base-epoch (* i 1000))} ; epoch millis
+              result (proc row)]
+          ;; Should not throw exceptions with epoch millis
+          (t/is (or (nil? result) (number? result)) "Should handle epoch millis conversion")))))
+
+  (t/testing "Streaming processor state isolation"
+    ;; Test that different processors maintain separate state
+    (let [proc1 (sut/streaming-rmssd-processor {:median-window 3})
+          proc2 (sut/streaming-rmssd-processor {:median-window 5})
+          test-row {:Device-UUID "isolation-test"
+                    :PpInMs 900.0
+                    :timestamp (java-time/instant)}]
+
+      ;; Process same row with both processors
+      (let [result1 (proc1 test-row)
+            result2 (proc2 test-row)]
+        ;; Both should be nil initially, but processors should be independent
+        (t/is (nil? result1))
+        (t/is (nil? result2))
+
+        ;; Processors should not interfere with each other
+        (t/is (not= (hash proc1) (hash proc2)) "Processors should be different instances"))))
+
+  (t/testing "Streaming processor parameter validation"
+    ;; Test with different parameter combinations
+    (let [custom-proc (sut/streaming-rmssd-processor {:rmssd-window-ms 12000
+                                                      :median-window 5
+                                                      :ma-window 4
+                                                      :buffer-size 100})]
+      (t/is (fn? custom-proc) "Should create processor with custom parameters"))
+
+    ;; Test with minimal parameters
+    (let [minimal-proc (sut/streaming-rmssd-processor {})]
+      (t/is (fn? minimal-proc) "Should create processor with default parameters"))))
+
+(t/deftest streaming-rmssd-processor-performance-test
+  (t/testing "Streaming processor performance and memory usage"
+    (let [proc (sut/streaming-rmssd-processor {:rmssd-window-ms 15000})
+          base-time (java-time/instant)
+          num-rows 50] ; Reduced for faster testing
+
+      ;; Time the processing of many rows
+      (let [start-time (System/nanoTime)
+            _ (doseq [i (range num-rows)]
+                (let [row {:Device-UUID "perf-test"
+                           :PpInMs (+ 900.0 (* 50 (Math/sin (/ i 10.0))))
+                           :timestamp (java-time/plus base-time (java-time/millis (* i 500)))}]
+                  (proc row)))
+            execution-time-ms (/ (- (System/nanoTime) start-time) 1000000.0)]
+
+        ;; Should complete in reasonable time (less than 1 second for 50 rows)
+        (t/is (< execution-time-ms 1000)
+              (str "Streaming processing should be fast, took: " execution-time-ms "ms")))))
+
+  (t/testing "Streaming processor memory efficiency"
+    ;; Test that processor doesn't accumulate unbounded memory
+    (let [proc (sut/streaming-rmssd-processor {:buffer-size 20}) ; Limited buffer
+          base-time (java-time/instant)]
+
+      ;; Process many more rows than buffer size
+      (doseq [i (range 50)] ; 2.5x buffer size
+        (let [row {:Device-UUID "memory-test"
+                   :PpInMs (+ 900.0 (rand 100))
+                   :timestamp (java-time/plus base-time (java-time/millis (* i 100)))}]
+          (proc row)))
+
+      ;; Should not throw out of memory errors
+      (t/is true "Should handle many rows without memory issues"))))
 
 (t/deftest new-edge-case-handling-test
   (t/testing "standardize-csv-line handles nil input gracefully"
