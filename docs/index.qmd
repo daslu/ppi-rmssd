@@ -37,9 +37,11 @@ The main challenge we're solving: real-time HRV measurements are often noisy and
 
 - **Data cleaning**: Handles malformed CSV files from Polar devices
 - **Signal processing**: Implements various smoothing filters (moving averages, median filters, cascaded approaches)
+- **Window-based processing:** Offers a round-robin structure over tech.ml.dataset datasets for efficient window-based processing (both batch and streaming)
 - **Quality assessment**: Detects measurement discontinuities and data quality issues
 - **RMSSD calculation**: Windowed computation with configurable parameters
 - **Analysis notebooks**: Literate programming approach for research and visualization
+- **Systematic comparison of methods**: Evaluated methods against synthetic distrortion of ground-truth series
 
 ## Structure
 
