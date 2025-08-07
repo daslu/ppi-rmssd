@@ -1,4 +1,4 @@
-;; # Real-Time RMSSD Smoothing for Relaxation Monitoring
+;; # Smoothing and RMSSD Estimation - Analysis
 ;;
 ;; A data science analysis to find stable methods for heart rate variability monitoring.
 
