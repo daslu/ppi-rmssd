@@ -2365,6 +2365,79 @@
       (t/is (= 1 (tc/row-count result-small)))
       (t/is (nil? (first (tc/column result-small :rmssd-smoothed)))))))
 
+(t/deftest compute-rolling-rmssd-comprehensive-test
+  (t/testing "Comprehensive rolling RMSSD testing with various scenarios"
+    ;; Basic functionality test
+    (let [test-data (tc/dataset {:Device-UUID (repeat 20 "test-device")
+                                 :Client-Timestamp (repeat 20 (java-time/instant))
+                                 :PpInMs [850 900 800 950 820 880 870 890 860 910
+                                          840 920 830 940 825 895 875 905 865 915]})
+          timestamped-data (sut/add-timestamps test-data)
+          result (sut/compute-rolling-rmssd timestamped-data
+                                            {:rmssd-window-ms 5000
+                                             :median-window 3
+                                             :ma-window 3})]
+
+      ;; Check that result has expected columns
+      (t/is (contains? (set (tc/column-names result)) :rmssd-raw))
+      (t/is (contains? (set (tc/column-names result)) :rmssd-smoothed))
+
+      ;; Verify RMSSD calculation accuracy with regular intervals
+      (let [regular-data (tc/dataset {:Device-UUID (repeat 10 "regular")
+                                      :Client-Timestamp (repeat 10 (java-time/instant))
+                                      :PpInMs (repeat 10 900)}) ; Perfectly regular
+            regular-timestamped (sut/add-timestamps regular-data)
+            regular-result (sut/compute-rolling-rmssd regular-timestamped)
+            regular-rmssd (filter some? (tc/column regular-result :rmssd-raw))]
+        ;; RMSSD should be 0.0 for perfectly regular intervals
+        (t/is (every? #(< % 0.01) regular-rmssd)))
+
+      ;; Test smoothing effectiveness
+      (let [outlier-data (tc/dataset {:Device-UUID (repeat 15 "outlier")
+                                      :Client-Timestamp (repeat 15 (java-time/instant))
+                                      :PpInMs [900 920 880 1500 910 905 920 880 910 900
+                                               920 880 500 900 920]}) ; Contains outliers
+            outlier-timestamped (sut/add-timestamps outlier-data)
+            minimal-smooth (sut/compute-rolling-rmssd outlier-timestamped {:median-window 3 :ma-window 3})
+            aggressive-smooth (sut/compute-rolling-rmssd outlier-timestamped {:median-window 7 :ma-window 5})
+            minimal-values (filter some? (tc/column minimal-smooth :rmssd-smoothed))
+            aggressive-values (filter some? (tc/column aggressive-smooth :rmssd-smoothed))]
+        ;; Aggressive smoothing should reduce maximum values
+        (when (and (seq minimal-values) (seq aggressive-values))
+          (t/is (< (apply max aggressive-values) (apply max minimal-values)))))))
+
+  (t/testing "Edge cases and parameter validation"
+    ;; Test with very small dataset
+    (let [small-data (tc/dataset {:Device-UUID ["dev"]
+                                  :Client-Timestamp [(java-time/instant)]
+                                  :PpInMs [800]})
+          small-timestamped (sut/add-timestamps small-data)
+          small-result (sut/compute-rolling-rmssd small-timestamped)]
+      ;; Should handle gracefully without errors
+      (t/is (= 1 (tc/row-count small-result)))
+      (t/is (every? nil? (tc/column small-result :rmssd-smoothed))))
+
+    ;; Test custom column names
+    (let [test-data (tc/dataset {:Device-UUID (repeat 10 "custom")
+                                 :Client-Timestamp (repeat 10 (java-time/instant))
+                                 :PpInMs (range 800 900 10)})
+          timestamped-data (sut/add-timestamps test-data)
+          custom-result (sut/compute-rolling-rmssd timestamped-data {:output-col :my-rmssd})]
+      (t/is (contains? (set (tc/column-names custom-result)) :my-rmssd))))
+
+  (t/testing "Performance and scalability"
+    ;; Test with larger dataset to ensure reasonable performance
+    (let [large-data (tc/dataset {:Device-UUID (repeat 50 "perf-test")
+                                  :Client-Timestamp (repeat 50 (java-time/instant))
+                                  :PpInMs (repeatedly 50 #(+ 800 (rand-int 200)))})
+          large-timestamped (sut/add-timestamps large-data)
+          start-time (System/nanoTime)
+          large-result (sut/compute-rolling-rmssd large-timestamped)
+          execution-time-ms (/ (- (System/nanoTime) start-time) 1000000.0)]
+      ;; Should complete in reasonable time (less than 1 second for 50 rows)
+      (t/is (< execution-time-ms 1000))
+      (t/is (= 50 (tc/row-count large-result))))))
+
 (t/deftest new-edge-case-handling-test
   (t/testing "standardize-csv-line handles nil input gracefully"
     (t/is (nil? (sut/standardize-csv-line nil))))
