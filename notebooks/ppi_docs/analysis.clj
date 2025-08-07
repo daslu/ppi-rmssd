@@ -1,4 +1,4 @@
-;; # Smoothing and RMSSD Estimation - Analysis
+;; # Analysis: Data Smoothing/Cleaning and RMSSD Estimation
 ;;
 ;; A data science analysis to find stable methods for heart rate variability monitoring.
 
