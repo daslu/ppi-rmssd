@@ -560,7 +560,7 @@
      (sort-by (fn [segment] (-> segment tc/rows first hash)))
      (take 8)
      (map plot-comparison)
-     (into [:div])
+     (into [:div.limited-height])
      kind/hiccup)
 
 ;; We see that sometimes, the smoothing is too agressive.
