@@ -467,7 +467,7 @@
       (t/is (= 1 (tc/row-count result)))))
 
   (t/testing "standardize-csv-line handles null input"
-    (t/is (thrown? Exception (sut/standardize-csv-line nil))))
+    (t/is (nil? (sut/standardize-csv-line nil))))
 
   (t/testing "functions handle malformed numeric data"
     (let [bad-numeric-data (tc/dataset {"prefix-PpInMs" ["not-a-number"]
