@@ -503,6 +503,7 @@
 ;;
 ;; Let's see what the actual RMSSD signals look like when computed from raw vs smoothed PPI data:
 
+
 (let [;; Create distorted PPI data
       distorted-segment (-> clean-segment-example
                             (ppi/distort-segment {:noise-std 12.0
@@ -512,11 +513,18 @@
                                                   :extra-prob 0.01}))
 
       ;; Calculate RMSSD from raw distorted PPI data
-      raw-rmssd-data (-> distorted-segment
-                         (ppi/add-column-by-windowed-fn {:colname :RMSSD
-                                                         :windowed-fn #(ppi/windowed-dataset->rmssd % :timestamp 60000)
-                                                         :windowed-dataset-size 240})
-                         (tc/add-columns {:signal-type "Raw PPI → RMSSD"}))
+      clean-rmssd-data (-> clean-segment-example
+                           (ppi/add-column-by-windowed-fn {:colname :RMSSD
+                                                           :windowed-fn #(ppi/windowed-dataset->rmssd % :timestamp 60000)
+                                                           :windowed-dataset-size 240})
+                           (tc/add-columns {:signal-type "Clean PPI → RMSSD"}))
+      
+      ;; Calculate RMSSD from raw distorted PPI data
+      distorted-rmssd-data (-> distorted-segment
+                               (ppi/add-column-by-windowed-fn {:colname :RMSSD
+                                                               :windowed-fn #(ppi/windowed-dataset->rmssd % :timestamp 60000)
+                                                               :windowed-dataset-size 240})
+                               (tc/add-columns {:signal-type "Distorted PPI → RMSSD"}))
 
       ;; Calculate RMSSD from smoothed PPI data (two-step process)
       smoothed-rmssd-data (-> distorted-segment
@@ -529,17 +537,18 @@
                                                               :windowed-fn #(ppi/windowed-dataset->rmssd % :timestamp 60000)
                                                               :windowed-dataset-size 240})
                               (tc/add-columns {:signal-type "Smoothed PPI → RMSSD"}))
-
+      
       ;; Combine for comparison
-      combined-data (-> (tc/concat raw-rmssd-data smoothed-rmssd-data)
+      combined-data (-> (tc/concat clean-rmssd-data distorted-rmssd-data smoothed-rmssd-data)
                         (tc/select-rows #(not (nil? (:RMSSD %)))))]
 
   (-> combined-data
       (plotly/base {:=height 350
-                    :=title "RMSSD Comparison: Raw vs Smoothed PPI Data"})
+                    :=title "RMSSD Comparison: Clean, Distorted, and Smoothed PPI Data"})
       (plotly/layer-line {:=x :timestamp
                           :=y :RMSSD
                           :=color :signal-type})))
+
 
 ;; ## Comparison over various segments
 
