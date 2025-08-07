@@ -8,6 +8,13 @@ This project processes Pulse-to-Pulse Interval (PPI) data from Polar heart rate 
 
 The main challenge we're solving: real-time HRV measurements are often noisy and jumpy, making them hard to interpret. This library provides smoothing algorithms and data quality checks to produce stable, meaningful HRV feedback.
 
+## Table of contents
+
+* [Main page](https://daslu.github.io/ppi-rmssd/)
+* [API Reference](https://daslu.github.io/ppi-rmssd/ppi_docs.api_reference.html)
+* [Getting the Data Ready](https://daslu.github.io/ppi-rmssd/ppi_docs.preparations.html)
+* [Analysis: Data Smoothing/Cleaning and RMSSD Estimation](https://daslu.github.io/ppi-rmssd/ppi_docs.analysis.html)
+
 ## Key features
 
 - **Data cleaning**: Handles malformed CSV files from Polar devices
@@ -34,9 +41,13 @@ Built on the Clojure data science ecosystem:
   - [**Tableplot**](https://scicloj.github.io/tableplot/) - plotting
   - [**Clay**](https://scicloj.github.io/clay/) - Literate programming and visualization
 
-## Development
+## Recommended workflow
 
 * Just explore most of the code in the REPL.
+* For tests: `clj -M:test-main`.
+* For visualizations, use Clay's [setup](integration) in your favourite editor.
+* To render [the documentation](https://daslu.github.io/ppi-rmssd/), run the `dev/docs.clj` script. You will need [Quarto](https://quarto.org/) installed in your system.
+
 
 
 
